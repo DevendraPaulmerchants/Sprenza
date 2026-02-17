@@ -11,7 +11,7 @@ import logo from '../../assets/logo.png';
 import { handleAlphaNumericInput, isValidPassword } from '../../utils/utils';
 import DeviceInfo from 'react-native-device-info';
 import { styles } from '../../css/logInCss';
-import { BASE_URL } from '@env';
+import { BASE_URL } from '../../utils/GlobalText';
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState('');

@@ -15,7 +15,7 @@ import { requestCameraPermission } from '../../utils/permissions';
 import { dateAndTime } from '../../utils/formattedDateandTime';
 import { styles } from '../../css/selfieDetailsCss';
 import StatusIndicator from '../../components/common/StatusIndicator';
-import { BASE_URL } from '@env';
+import { BASE_URL } from '../../utils/GlobalText';
 
 function SelfieDetails({ puchInData, accessToken, updatePunchInData }) {
   const sessionLength = puchInData?.sessions?.length || 0;

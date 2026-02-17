@@ -10,7 +10,7 @@ import logo from '../../assets/logo.png';
 import { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { styles } from '../../css/verifyOtpCss';
-import { BASE_URL } from '@env';
+import { BASE_URL } from '../../utils/GlobalText';
 
 const VerifyOTP = ({ route, navigation }) => {
   const { email } = route.params;

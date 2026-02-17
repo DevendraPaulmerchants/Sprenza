@@ -8,7 +8,7 @@ import { getAddressFromCoords } from '../../utils/geocode';
 import { launchCamera } from 'react-native-image-picker';
 import { requestCameraPermission } from '../../utils/permissions';
 import { styles } from '../../css/dailyPuchCss';
-import { BASE_URL } from '@env';
+import { BASE_URL } from '../../utils/GlobalText';
 
 const DailyPunch = () => {
   const { accessToken, user, updatePunchInData } = useAuth();

@@ -5,8 +5,8 @@ import { dateAndTime } from '../../utils/formattedDateandTime';
 import SelfieDetails from '../ui/SelfieDetails';
 import QuickActions from '../ui/QuickActions';
 import { styles } from '../../css/homeCss';
-import { BASE_URL } from '@env';
 import CompanyLogoName from '../../components/common/CompanyLogoName';
+import { BASE_URL } from '../../utils/GlobalText';
 
 const HomeScreen = () => {
   const { logout, user, accessToken, puchInData, updatePunchInData } =
