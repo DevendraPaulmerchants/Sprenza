@@ -1,4 +1,4 @@
-package com.pauledge
+package com.presenza
 
 import android.app.Application
 import com.facebook.react.PackageList
