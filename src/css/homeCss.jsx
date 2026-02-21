@@ -4,6 +4,7 @@ import { COLORS } from '../utils/colors';
 export const styles = StyleSheet.create({
   scrollView: {
     scrollBehavior: 'smooth',
+    paddingTop:'7.5%'
   },
   container: {
     width: '100%',

@@ -32,7 +32,7 @@ const AppNavigator = () => {
         </>
       ) : (
         <>
-          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="Presenza" component={LoginScreen} />
           <Stack.Screen name="Verify_Otp" component={VerifyOTP} />
         </>
       )}

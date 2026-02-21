@@ -33,75 +33,139 @@ function SelfieDetails({ puchInData, accessToken, updatePunchInData }) {
         onPress: async () => {
           setLoading(true);
           try {
+            console.log('Starting punch-out process...');
+            console.log('BASE_URL:', BASE_URL);
+            
+            // Step 1: Get location
+            console.log('Getting location...');
             const { latitude, longitude } = await getCurrentLocation();
-            console.log('Punch Out Location:', latitude, longitude);
+            console.log('Punch Out Location:', { latitude, longitude });
 
+            // Step 2: Get address
+            console.log('Getting address...');
             const address = await getAddressFromCoords(latitude, longitude);
             console.log('Punch Out Address:', address);
 
+            // Step 3: Check camera permission
+            console.log('Checking camera permission...');
             const hasCameraPermission = await requestCameraPermission();
             if (!hasCameraPermission) {
               Alert.alert(
                 'Permission Required',
                 'Camera permission is required',
               );
+              setLoading(false);
               return;
             }
+            
+            // Step 4: Open camera
+            console.log('Opening camera...');
             const cameraResult = await launchCamera({
               mediaType: 'photo',
               cameraType: 'front',
-              quality: 0.7,
+              quality: 0.5, // Reduced quality for faster upload
               saveToPhotos: false,
+              includeBase64: false,
             });
+
+            console.log('Camera result received');
 
             if (cameraResult.didCancel) {
               console.log('User cancelled camera');
+              setLoading(false);
               return;
             }
 
             if (!cameraResult.assets || cameraResult.assets.length === 0) {
               Alert.alert('Error', 'Failed to capture image');
+              setLoading(false);
               return;
             }
 
             const photo = cameraResult.assets[0];
+            console.log('Photo captured:', photo.uri);
 
+            // Step 5: Prepare FormData (FIXED FOR iOS)
             const formData = new FormData();
+            
             formData.append('latitude', String(latitude));
             formData.append('longitude', String(longitude));
             formData.append('address', address);
 
-            formData.append('image', {
-              uri:
-                Platform.OS === 'android'
-                  ? photo.uri
-                  : photo.uri.replace('file://', ''),
-              type: photo.type || 'image/jpeg',
-              name: photo.fileName || 'punchout.jpg',
-            });
+            // iOS URI fix - don't replace file:// for iOS, it needs it
+            const imageUri = Platform.OS === 'ios' 
+              ? photo.uri // Keep file:// for iOS
+              : photo.uri; // Android can handle either
 
+            // Create file object with proper structure for iOS
+            const fileObject = {
+              uri: imageUri,
+              type: photo.type || 'image/jpeg',
+              name: photo.fileName || `punchout_${Date.now()}.jpg`,
+            };
+
+            formData.append('image', fileObject);
+            console.log('FormData prepared for:', Platform.OS);
+            console.log('Image URI:', imageUri);
+
+            // Step 6: Make API call (USING FETCH - most reliable)
+            console.log('Making API call to:', `${BASE_URL}/attendance/punch-out`);
+            
+            // IMPORTANT: Don't set Content-Type header, let browser set it
             const response = await fetch(`${BASE_URL}/attendance/punch-out`, {
               method: 'POST',
               headers: {
-                Authorization: `Bearer ${accessToken}`,
-                'Content-Type': 'multipart/form-data',
+                'Authorization': `Bearer ${accessToken}`,
+                // 'Content-Type' is intentionally omitted
+                'Accept': 'application/json',
               },
               body: formData,
             });
 
-            const data = await response.json();
+            console.log('Response status:', response.status);
 
-            if (!response.ok) {
-              Alert.alert('Error', data.message || 'Punch out failed');
-              return;
+            // Get response as text first for debugging
+            const responseText = await response.text();
+            console.log('Raw response:', responseText);
+
+            // Try to parse as JSON
+            let data;
+            try {
+              data = JSON.parse(responseText);
+            } catch (e) {
+              console.log('Response is not JSON:', responseText);
+              data = { message: responseText };
             }
 
-            Alert.alert('Success', 'Punch out successful');
+            if (!response.ok) {
+              throw new Error(data.message || `Punch out failed (${response.status})`);
+            }
+
+            // Success
             console.log('Punch Out Response:', data);
+            Alert.alert('Success', 'Punch out successful');
             updatePunchInData(null);
+            
           } catch (error) {
-            console.error('Punch Out Error:', error);
-            Alert.alert('Error', 'Something went wrong');
+            console.error('=== PUNCH OUT ERROR ===');
+            console.error('Error name:', error.name);
+            console.error('Error message:', error.message);
+            console.error('Error stack:', error.stack);
+            
+            // User-friendly error messages
+            let errorMessage = 'Something went wrong';
+            
+            if (error.message.includes('Network request failed')) {
+              errorMessage = `Cannot connect to server at ${BASE_URL}. Please check your network connection.`;
+            } else if (error.message.includes('timeout')) {
+              errorMessage = 'Request timed out. Please try again.';
+            } else if (error.message.includes('401')) {
+              errorMessage = 'Authentication failed. Please login again.';
+            } else if (error.message) {
+              errorMessage = error.message;
+            }
+            
+            Alert.alert('Error', errorMessage);
           } finally {
             setLoading(false);
           }
@@ -139,12 +203,12 @@ function SelfieDetails({ puchInData, accessToken, updatePunchInData }) {
               {/*--------------- Punch Button ----------- */}
               <View>
                 <TouchableOpacity
-                  style={styles.punchOutButton}
+                  style={[styles.punchOutButton, loading && styles.buttonDisabled]}
                   onPress={handlePunchOut}
                   disabled={loading}
                 >
                   <Text style={styles.punchOutText}>
-                    {loading ? 'Punch Outing..' : 'Punch Out'}
+                    {loading ? 'Processing...' : 'Punch Out'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -194,5 +258,15 @@ function SelfieDetails({ puchInData, accessToken, updatePunchInData }) {
     </View>
   );
 }
+
+// Add disabled button style if not already in your CSS
+const localStyles = StyleSheet.create({
+  buttonDisabled: {
+    opacity: 0.6,
+  }
+});
+
+// Merge with your existing styles
+const mergedStyles = StyleSheet.flatten([styles, localStyles]);
 
 export default React.memo(SelfieDetails);

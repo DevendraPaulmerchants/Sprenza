@@ -5,6 +5,8 @@ import {
   TouchableOpacity,
   View,
   Image,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
 import logo from '../../assets/logo.png';
 import { useState } from 'react';
@@ -18,6 +20,12 @@ const VerifyOTP = ({ route, navigation }) => {
 
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const handleOtpChange = (text) => {
+    if (text.length <= 6) {
+      setOtp(text);
+    }
+  };
 
   const handleVerifyOtp = async () => {
     if (!otp) {
@@ -64,7 +72,7 @@ const VerifyOTP = ({ route, navigation }) => {
       <View style={styles.wrapper}>
         <Text style={styles.title}>OTP sent to: {email}</Text>
         <View style={styles.errorContainer}>
-          <Text style={{ color: '#139c4c' }}>Enter Wrong Email</Text>
+          <Text style={{ color: '#139c4c' }}>if entered wrong email</Text>
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.goBack()}
@@ -73,18 +81,20 @@ const VerifyOTP = ({ route, navigation }) => {
           </TouchableOpacity>
         </View>
 
-        <View>
-          <Text style={styles.lable}>Enter OTP:</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter OTP"
-            value={otp}
-            onChangeText={setOtp}
-            keyboardType="number-pad"
-            autoCapitalize="none"
-            maxLength={6}
-          />
-        </View>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <View>
+        <Text style={styles.label}>Enter OTP:</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter OTP"
+          value={otp}
+          onChangeText={handleOtpChange}
+          keyboardType="number-pad"
+          maxLength={6}
+          returnKeyType="done"
+        />
+      </View>
+    </TouchableWithoutFeedback>
         <TouchableOpacity
           style={styles.button}
           onPress={handleVerifyOtp}

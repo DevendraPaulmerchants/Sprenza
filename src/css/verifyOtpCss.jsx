@@ -58,7 +58,13 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     display: 'flex',
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  label:{
+    fontSize: 16,
+    color: '#eee',
+    marginBottom: 10,
   },
   backButton: {
     backgroundColor: '#fff',

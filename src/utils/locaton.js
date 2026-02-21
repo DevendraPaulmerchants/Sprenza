@@ -1,31 +1,57 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import Geolocation from 'react-native-geolocation-service';
+import { request, check, PERMISSIONS, RESULTS } from 'react-native-permissions';
 
-export const getCurrentLocation = () => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      // ANDROID permission
-      if (Platform.OS === 'android') {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          {
-            title: 'Location Permission',
-            message: 'App needs your location to mark attendance',
-            buttonNeutral: 'Ask Me Later',
-            buttonNegative: 'Cancel',
-            buttonPositive: 'OK',
-          },
-        );
+export const getCurrentLocation = async () => {
+  try {
+    // =========================
+    // ANDROID PERMISSION
+    // =========================
+    if (Platform.OS === 'android') {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        {
+          title: 'Location Permission',
+          message: 'App needs your location to mark attendance',
+          buttonNeutral: 'Ask Me Later',
+          buttonNegative: 'Cancel',
+          buttonPositive: 'OK',
+        },
+      );
 
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          return reject({
-            message: 'Location permission not granted.',
-            code: 1,
-          });
+      if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+        throw { code: 1, message: 'Location permission not granted.' };
+      }
+    }
+
+    // =========================
+    // IOS PERMISSION
+    // =========================
+    if (Platform.OS === 'ios') {
+      const permission = PERMISSIONS.IOS.LOCATION_WHEN_IN_USE;
+
+      const status = await check(permission);
+
+      if (status === RESULTS.DENIED) {
+        const requestStatus = await request(permission);
+
+        if (requestStatus !== RESULTS.GRANTED) {
+          throw { code: 1, message: 'Location permission denied' };
         }
       }
 
-      // GET LOCATION
+      if (status === RESULTS.BLOCKED) {
+        throw {
+          code: 1,
+          message: 'Location permission blocked. Enable from Settings.',
+        };
+      }
+    }
+
+    // =========================
+    // GET LOCATION
+    // =========================
+    return new Promise((resolve, reject) => {
       Geolocation.getCurrentPosition(
         position => {
           resolve({
@@ -44,8 +70,8 @@ export const getCurrentLocation = () => {
           showLocationDialog: true,
         },
       );
-    } catch (err) {
-      reject(err);
-    }
-  });
+    });
+  } catch (error) {
+    throw error;
+  }
 };
