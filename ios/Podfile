@@ -10,15 +10,15 @@ if linkage != nil
   use_frameworks! :linkage => linkage.to_sym
 end
 
-target 'PaulEdge' do
+target 'Presenza' do
   config = use_native_modules!
 
   use_react_native!(
     :path => config[:reactNativePath],
-    :app_path => "#{Pod::Config.instance.installation_root}/.."
+    :app_path => "#{Pod::Config.instance.installation_root}/..",
+    :hermes_enabled => true   # 👈 FORCE HERMES
   )
 
-  # 👇 ADD THIS
   setup_permissions([
     'LocationWhenInUse',
     'Camera',
@@ -31,5 +31,15 @@ target 'PaulEdge' do
       config[:reactNativePath],
       :mac_catalyst_enabled => false,
     )
+
+    # 👇 ADD THIS BLOCK FOR HERMES dSYM FIX
+    installer.pods_project.targets.each do |target|
+      if target.name == 'hermes-engine'
+        target.build_configurations.each do |config|
+          config.build_settings['DEBUG_INFORMATION_FORMAT'] = 'dwarf-with-dsym'
+          config.build_settings['GCC_GENERATE_DEBUGGING_SYMBOLS'] = 'YES'
+        end
+      end
+    end
   end
 end
