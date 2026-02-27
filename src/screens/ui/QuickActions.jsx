@@ -14,7 +14,7 @@ const QUICK_ACTIONS = [
   },
   {
     id: '2',
-    title: 'Idle Tracking',
+    title: 'Break Time',
     icon: Timer,
     color: '#f54a00',
     path: '',

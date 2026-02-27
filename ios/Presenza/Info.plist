@@ -41,14 +41,14 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Face ID access is required to login easily</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Camera access is required to take photos</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>This app requires location access to function properly.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>This app requires location access to function properly.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Photo access is required to punch in</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -65,5 +65,22 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>GothamUltraItalic.ttf</string>
+		<string>GothamXLightItalic.ttf</string>
+		<string>GothamUltra.ttf</string>
+		<string>GothamLight.ttf</string>
+		<string>GothamBlack.ttf</string>
+		<string>GothamBlackItalic.ttf</string>
+		<string>GothamMediumItalic.ttf</string>
+		<string>GothamBold.ttf</string>
+		<string>GothamThinItalic.ttf</string>
+		<string>GothamBoldItalic.ttf</string>
+		<string>GothamXLight.ttf</string>
+		<string>GothamLightItalic.ttf</string>
+		<string>GothamMedium.ttf</string>
+		<string>GothamThin.ttf</string>
+	</array>
 </dict>
 </plist>
