@@ -2,6 +2,7 @@
   "buildFiles": [
     "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/@react-native-async-storage/async-storage/android/build/generated/source/codegen/jni/CMakeLists.txt",
     "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-image-picker/android/build/generated/source/codegen/jni/CMakeLists.txt",
+    "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-keychain/android/build/generated/source/codegen/jni/CMakeLists.txt",
     "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-permissions/android/build/generated/source/codegen/jni/CMakeLists.txt",
     "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-safe-area-context/android/src/main/jni/CMakeLists.txt",
     "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-screens/android/src/main/jni/CMakeLists.txt",
@@ -65,6 +66,11 @@
         "/Users/kuberjha/.gradle/caches/8.13/transforms/3d4a9692ce15564fe2756ee11a3f3688/transformed/jetified-react-android-0.83.1-release/prefab/modules/jsi/libs/android.arm64-v8a/libjsi.so",
         "/Users/kuberjha/.gradle/caches/8.13/transforms/3d4a9692ce15564fe2756ee11a3f3688/transformed/jetified-react-android-0.83.1-release/prefab/modules/reactnative/libs/android.arm64-v8a/libreactnative.so"
       ]
+    },
+    "react_codegen_RNKeychainSpec::@f9a2cb36ebca2de4baf9": {
+      "artifactName": "react_codegen_RNKeychainSpec",
+      "abi": "arm64-v8a",
+      "runtimeFiles": []
     },
     "react_codegen_rnsvg::@4f40eb209d0c0b4a3b65": {
       "artifactName": "react_codegen_rnsvg",

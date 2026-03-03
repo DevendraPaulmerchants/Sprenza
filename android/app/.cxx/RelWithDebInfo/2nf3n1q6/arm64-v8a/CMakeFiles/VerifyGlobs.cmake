@@ -60,6 +60,30 @@ if(NOT "${NEW_GLOB}" STREQUAL "${OLD_GLOB}")
   file(TOUCH_NOCREATE "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/android/app/.cxx/RelWithDebInfo/2nf3n1q6/arm64-v8a/CMakeFiles/cmake.verify_globs")
 endif()
 
+# react_codegen_SRCS at /Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-keychain/android/build/generated/source/codegen/jni/CMakeLists.txt:9 (file)
+file(GLOB NEW_GLOB LIST_DIRECTORIES true "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-keychain/android/build/generated/source/codegen/jni/*.cpp")
+set(OLD_GLOB
+  "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-keychain/android/build/generated/source/codegen/jni/RNKeychainSpec-generated.cpp"
+  )
+if(NOT "${NEW_GLOB}" STREQUAL "${OLD_GLOB}")
+  message("-- GLOB mismatch!")
+  file(TOUCH_NOCREATE "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/android/app/.cxx/RelWithDebInfo/2nf3n1q6/arm64-v8a/CMakeFiles/cmake.verify_globs")
+endif()
+
+# react_codegen_SRCS at /Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-keychain/android/build/generated/source/codegen/jni/CMakeLists.txt:9 (file)
+file(GLOB NEW_GLOB LIST_DIRECTORIES true "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-keychain/android/build/generated/source/codegen/jni/react/renderer/components/RNKeychainSpec/*.cpp")
+set(OLD_GLOB
+  "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-keychain/android/build/generated/source/codegen/jni/react/renderer/components/RNKeychainSpec/ComponentDescriptors.cpp"
+  "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-keychain/android/build/generated/source/codegen/jni/react/renderer/components/RNKeychainSpec/EventEmitters.cpp"
+  "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-keychain/android/build/generated/source/codegen/jni/react/renderer/components/RNKeychainSpec/Props.cpp"
+  "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-keychain/android/build/generated/source/codegen/jni/react/renderer/components/RNKeychainSpec/ShadowNodes.cpp"
+  "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-keychain/android/build/generated/source/codegen/jni/react/renderer/components/RNKeychainSpec/States.cpp"
+  )
+if(NOT "${NEW_GLOB}" STREQUAL "${OLD_GLOB}")
+  message("-- GLOB mismatch!")
+  file(TOUCH_NOCREATE "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/android/app/.cxx/RelWithDebInfo/2nf3n1q6/arm64-v8a/CMakeFiles/cmake.verify_globs")
+endif()
+
 # react_codegen_SRCS at /Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-permissions/android/build/generated/source/codegen/jni/CMakeLists.txt:9 (file)
 file(GLOB NEW_GLOB LIST_DIRECTORIES true "/Users/kuberjha/Documents/paulfincare/pauledge/Sprenza/node_modules/react-native-permissions/android/build/generated/source/codegen/jni/*.cpp")
 set(OLD_GLOB

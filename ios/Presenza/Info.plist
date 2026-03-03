@@ -45,6 +45,8 @@
 	<string>Face ID access is required to login easily</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Camera access is required to take photos</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app needs permission to save images to your photo library.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>This app requires location access to function properly.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
