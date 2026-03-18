@@ -48,6 +48,7 @@ const SettingsScreen = ({ route , navigation}) => {
   const s = t?.settings ?? {};
   const a = t?.alerts ?? {};
   const b = t?.buttons ?? {};
+  const l = t?.leave ?? {}; // for department, employeeCode etc
 
   const handleLogout = () => {
     Alert.alert(
@@ -226,7 +227,7 @@ const SettingsScreen = ({ route , navigation}) => {
           </Text>
         </View>
       </ScrollView>
-      {/* ════ Theme Modal ════ */}
+      {/* Theme Modal and Language Modal same as before */}
       <Modal
         visible={themeModalVisible}
         transparent
@@ -292,7 +293,7 @@ const SettingsScreen = ({ route , navigation}) => {
           </View>
         </TouchableOpacity>
       </Modal>
-      {/* ════ Language Modal ════ */}
+
       <Modal
         visible={langModalVisible}
         transparent
@@ -428,7 +429,8 @@ const SettingsScreen = ({ route , navigation}) => {
           </Text>
         </View>
       </ScrollView>
-      {/* ════ Theme Modal ════ */}
+
+      {/* Theme Modal - same as above */}
       <Modal
         visible={themeModalVisible}
         transparent
@@ -494,7 +496,8 @@ const SettingsScreen = ({ route , navigation}) => {
           </View>
         </TouchableOpacity>
       </Modal>
-      {/* ════ Language Modal ════ */}
+
+      {/* Language Modal - same as above */}
       <Modal
         visible={langModalVisible}
         transparent
@@ -566,7 +569,7 @@ const SettingsScreen = ({ route , navigation}) => {
   );
 };
 
-// ── styles ───────────────────────────────────────────────────────────────────
+// Styles remain the same
 const styles = StyleSheet.create({
   scroll: {
     paddingTop: hp('1%'),
@@ -602,9 +605,12 @@ const styles = StyleSheet.create({
   rowLabel: { fontSize: wp('3.5%'), fontFamily: Fonts.medium },
   rowDesc: { fontSize: wp('2.8%'), fontFamily: Fonts.regular, marginTop: 2 },
   rowValue: {
+    flex:1/2,
     fontSize: wp('3%'),
     fontFamily: Fonts.regular,
     marginRight: wp('1%'),
+    lineHeight: hp('2%'),
+
   },
 
   infoCard: {
@@ -658,33 +664,30 @@ const styles = StyleSheet.create({
   },
   flagText: { fontSize: wp('5%') },
   header: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  paddingHorizontal: wp('4%'),
-  paddingTop: Platform.OS === 'ios' ? hp('6%') : hp('5%'),
-  paddingBottom: hp('2%'),
-  borderBottomWidth: 1,
-},
-
-backBtn: {
-  width: wp('9%'),
-  height: wp('9%'),
-  borderRadius: wp('2.5%'),
-  borderWidth: 1,
-  justifyContent: 'center',
-  alignItems: 'center',
-},
-
-pageHeader: {
-  flex: 1,
-  paddingLeft: wp('3%'),
-},
-
-pageTitle: {
-  fontSize: wp('5%'),
-  fontFamily: Fonts.bold,
-  letterSpacing: -0.3,
-},
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: wp('4%'),
+    paddingTop: Platform.OS === 'ios' ? hp('6%') : hp('5%'),
+    paddingBottom: hp('2%'),
+    borderBottomWidth: 1,
+  },
+  backBtn: {
+    width: wp('9%'),
+    height: wp('9%'),
+    borderRadius: wp('2.5%'),
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pageHeader: {
+    flex: 1,
+    paddingLeft: wp('3%'),
+  },
+  pageTitle: {
+    fontSize: wp('5%'),
+    fontFamily: Fonts.bold,
+    letterSpacing: -0.3,
+  },
 });
 
 export default SettingsScreen;

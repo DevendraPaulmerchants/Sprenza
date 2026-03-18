@@ -29,6 +29,13 @@ const CustomHeader = ({
   onMenuPress,
   rightComponent,
   backgroundColor,
+
+  // 👇 ADD THESE
+  userName,
+  greeting,
+  date,
+  showProfile = false,
+  onProfilePress,
 }) => {
   const navigation = useNavigation();
   const dispatch = useDispatch();
@@ -60,8 +67,16 @@ const CustomHeader = ({
 
   return (
     <>
-      <StatusBar barStyle={C.statusBar} backgroundColor={backgroundColor || C.headerBg} />
-      <View style={[styles.container, { backgroundColor: backgroundColor || C.headerBg }]}>
+      <StatusBar
+        barStyle={C.statusBar}
+        backgroundColor={backgroundColor || C.headerBg}
+      />
+      <View
+        style={[
+          styles.container,
+          { backgroundColor: backgroundColor || C.headerBg },
+        ]}
+      >
         {/* Left Section */}
         <View style={styles.leftSection}>
           {showBack ? (
@@ -69,9 +84,20 @@ const CustomHeader = ({
               <ArrowLeft size={wp('5%')} color={C.textPrimary} />
             </TouchableOpacity>
           ) : (
-            <View style={styles.logoSection}>
-              <Image source={logo} style={[styles.logo, { borderColor: C.primary }]} />
-              <Text style={[styles.appName, { color: C.primary }]}>Presenza</Text>
+            // <View style={styles.logoSection}>
+            //    <Image source={logo} style={[styles.logo, { borderColor: C.primary }]} />
+            //   <Text style={[styles.appName, { color: C.primary }]}>Presenza</Text>
+            // </View>
+            <View>
+              <Text style={[styles.greeting, { color: C.textSecondary }]}>
+                {greeting || 'Hello,'}
+              </Text>
+              <Text style={[styles.name, { color: C.textPrimary }]}>
+                {userName || 'User'} 👋
+              </Text>
+              <Text style={[styles.date, { color: C.textSecondary }]}>
+                {date}
+              </Text>
             </View>
           )}
         </View>
@@ -79,15 +105,28 @@ const CustomHeader = ({
         {/* Center Section (Optional Title) */}
         {title && title !== 'Home' && (
           <View style={styles.centerSection}>
-            <Text style={[styles.title, { color: C.textPrimary }]}>{title}</Text>
+            <Text style={[styles.title, { color: C.textPrimary }]}>
+              {title}
+            </Text>
           </View>
         )}
 
         {/* Right Section */}
         <View style={styles.rightSection}>
-          <TouchableOpacity onPress={handleLogout} style={styles.iconButton}>
+          {/* <TouchableOpacity onPress={handleLogout} style={styles.iconButton}>
             <Power size={wp('5.5%')} color={C.error} />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
+          {showProfile && (
+            <TouchableOpacity
+              style={[styles.avatar, { backgroundColor: C.primary }]}
+              onPress={onProfilePress}
+            >
+              <Text style={[styles.avatarText, { color: C.textDark }]}>
+                {userName?.charAt(0)?.toUpperCase() || 'U'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
           {rightComponent}
         </View>
       </View>
@@ -100,8 +139,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: wp('4%'),
-    paddingTop: Platform.OS === 'ios' ? hp('5%') : hp('4%'),
+    paddingHorizontal: wp('5%'),
+    paddingTop: Platform.OS === 'ios' ? hp('6%') : hp('5%'),
     borderBottomWidth: 1,
     borderBottomColor: 'transparent',
   },
@@ -145,6 +184,34 @@ const styles = StyleSheet.create({
     padding: wp('2%'),
     paddingRight: wp('4%'),
   },
+  greeting: {
+  fontSize: wp('3.2%'),
+  fontFamily: Fonts.regular,
+},
+
+name: {
+  fontSize: wp('5%'),
+  fontFamily: Fonts.bold,
+},
+
+date: {
+  fontSize: wp('2.8%'),
+  fontFamily: Fonts.regular,
+  marginTop: 2,
+},
+
+avatar: {
+  width: wp('10%'),
+  height: wp('10%'),
+  borderRadius: wp('5%'),
+  justifyContent: 'center',
+  alignItems: 'center',
+},
+
+avatarText: {
+  fontSize: wp('4%'),
+  fontFamily: Fonts.bold,
+},
 });
 
 export default CustomHeader;

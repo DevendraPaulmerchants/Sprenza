@@ -97,7 +97,7 @@ export const formatAttendanceDuration = (minutes) => {
 // };
 
 export const getAddressFromCoords = async (lat, lng) => {
-    const GOOGLE_API_KEY = 'AIzaSyBq2vZw0vfoiTSm2DypMQ6-odWpsJYLCEc';
+    const GOOGLE_API_KEY = 'AIzaSyDNY5oQOOYz1dtYXZUn4WNbJPwiOE9OENE';
 
   try {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_API_KEY}`;

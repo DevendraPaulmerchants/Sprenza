@@ -14,7 +14,7 @@ const FloatingLabelInput = ({
   onFocus,
   onBlur,
   keyboardType,
-  autoCapitalize,
+  autoCapitalize, // Add this prop
   maxLength,
   placeholder,
   placeholderTextColor,
@@ -86,7 +86,7 @@ const FloatingLabelInput = ({
           onBlur?.(e);
         }}
         keyboardType={keyboardType}
-        autoCapitalize={autoCapitalize}
+        autoCapitalize={autoCapitalize} // Pass through the prop
         maxLength={maxLength}
         placeholder={isFocused ? placeholder : ''}
         placeholderTextColor={placeholderTextColor || C.textSecondary}

@@ -9,15 +9,20 @@ import { useTheme } from '../../context/ThemeContext';
 import CustomHeader from '../common/CustomHeader';
 import BottomNavigator from '../common/BottomNavigator';
 
-const MainLayout = ({ 
-  children, 
-  title, 
+const MainLayout = ({
+  children,
+  title,
   showBack = false,
   showMenu = false,
   headerRightComponent,
   headerBackgroundColor,
   hideBottomNav = false,
-  onMenuPress
+  onMenuPress,
+  userName,
+  greeting,
+  date,
+  showProfile,
+  onProfilePress,
 }) => {
   const { theme } = useTheme();
   const C = theme.colors;
@@ -32,10 +37,15 @@ const MainLayout = ({
         onMenuPress={onMenuPress}
         rightComponent={headerRightComponent}
         backgroundColor={headerBackgroundColor || C.headerBg}
+        userName={userName}
+        greeting={greeting}
+        date={date}
+        showProfile={showProfile}
+        onProfilePress={onProfilePress}
       />
 
       {/* Content */}
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}

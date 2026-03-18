@@ -1,4 +1,3 @@
-// src/screens/home/Home.jsx
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
@@ -35,6 +34,7 @@ import {
   XCircle,
   Phone,
   Mail,
+  Briefcase,
 } from 'lucide-react-native';
 import MainLayout from '../../components/layout/MainLayout';
 import { setAlert } from '../../store/actions/authActions';
@@ -43,6 +43,7 @@ import {
   punchOut,
   breakIn,
   breakOut,
+  logVisit,
 } from '../../store/actions/attendanceActions';
 import { useTheme } from '../../context/ThemeContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -53,7 +54,7 @@ import {
   formatMinutesToHours,
 } from '../../utils/utils';
 import BreakReasonModal from '../../components/modals/BreakReasonModal';
-import BreakStatusBar from '../../components/common/BreakStatusBar';
+import VisitModal from '../../components/modals/Visitmodal';
 import ActiveTimeDisplay from '../../components/common/ActiveTimeDisplay';
 import { getEmployeeProfile } from '../../store/actions/employeeActions';
 
@@ -77,11 +78,25 @@ const HomeScreen = ({ navigation }) => {
   const [durationFormat, setDurationFormat] = useState('auto');
   const [showFormatOptions, setShowFormatOptions] = useState(false);
   const [breakModalVisible, setBreakModalVisible] = useState(false);
+  const [visitModalVisible, setVisitModalVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const timerRef = useRef(null);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
 
+  // ── Profile ──────────────────────────────────────────────
+  const { profile } = useSelector(state => state.employeeProfile);
+  const fullName = profile?.[0]?.fullName || '';
+  const firstName = fullName.split(' ')[0] || 'Guest';
+  const department = profile?.[0]?.department || '';
+  const reportingManager = profile?.[0]?.reportingTo;
+  const managerName = reportingManager?.name || 'Manager';
+  const managerEmail = reportingManager?.email || '';
+  const managerPhone = reportingManager?.phone || '';
+
+  const isSalesTeam = department.toLowerCase().includes('sales');
+
+  // ── Attendance data ───────────────────────────────────────
   const today = new Date().toISOString().split('T')[0];
   const todayRecord = history?.find(r => r.date.split('T')[0] === today);
   const sessions = todayRecord?.sessions || [];
@@ -90,21 +105,19 @@ const HomeScreen = ({ navigation }) => {
   const todaysPunchOut = lastSession?.punchOut;
   const lastImage = lastSession?.punchInLocation?.imageUrl;
 
-  // Core Status Logic
-  const attendanceStatus =
+  const rawAttendanceStatus =
     todayRecord?.attendanceStatus || todayRecord?.status || 'ABSENT';
-  const isAbsent = attendanceStatus === 'ABSENT';
-  const isPunchedIn = todayRecord?.isPunchedIn === true; // Currently punched in (active session)
-  const hasAnySessionToday = sessions.length > 0; // Has at least one session today
+  const isPunchedIn = todayRecord?.isPunchedIn === true;
+  const hasAnySessionToday = sessions.length > 0;
 
-  // Break Status
+  const isAbsent = rawAttendanceStatus === 'ABSENT' && !isPunchedIn;
+
   const isOnBreak =
     !!activeBreak || lastSession?.breaks?.some(b => !b.breakOut);
   const currentBreak = isOnBreak
     ? activeBreak || lastSession?.breaks?.find(b => !b.breakOut)
     : null;
 
-  // Derived Status
   const isUserLate = todayRecord?.isLate === true;
   const isHalfDay = todayRecord?.isHalfDay === true;
   const lateMinutes = todayRecord?.lateMinutes || 0;
@@ -118,20 +131,16 @@ const HomeScreen = ({ navigation }) => {
   const eveningShortLeaveMinutes = todayRecord?.eveningShortLeave?.minutes || 0;
   const breakCount = todayRecord?.breakCount || 0;
 
-  // Calculations
   const totalMinutes = sessions.reduce(
-    (t, s) => t + (s.durationMinutes || 0),
+    (acc, s) => acc + (s.durationMinutes || 0),
     0,
   );
   const totalBreakMinutes = sessions.reduce(
-    (t, s) =>
-      t + (s.breaks || []).reduce((bt, b) => bt + (b.durationMinutes || 0), 0),
+    (acc, s) =>
+      acc +
+      (s.breaks || []).reduce((bt, b) => bt + (b.durationMinutes || 0), 0),
     0,
   );
-
-  const userName = user?.name || user?.email?.split('@')[0] || 'User';
-  const formattedName =
-    userName.charAt(0).toUpperCase() + userName.slice(1).toLowerCase();
 
   useEffect(() => {
     timerRef.current = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -167,45 +176,57 @@ const HomeScreen = ({ navigation }) => {
   const handleQuickActionPress = label => {
     if (isProcessing || breakLoading) return;
 
-    switch (label) {
-      case t.home.dailyPunch:
-        // User can always punch in regardless of previous sessions
-        if (isPunchedIn) {
-          dispatch(
-            setAlert(
-              t.alerts.alreadyPunchedIn || 'You are already punched in',
-              'error',
-            ),
-          );
-          return;
-        }
-        navigation.navigate('DailyPuch');
-        break;
-      case t.home.idleTracking:
-        if (!isPunchedIn) {
-          dispatch(setAlert(t.alerts.punchInFirst, 'error'));
-          return;
-        }
-        if (isOnBreak) {
-          dispatch(setAlert(t.alerts.alreadyOnBreak, 'error'));
-          return;
-        }
-        setBreakModalVisible(true);
-        break;
-      case t.home.reports:
-        navigation.navigate('Reports');
-        break;
-      case t.home.leaveManagement:
-        navigation.navigate('Leave');
-        break;
-      default:
+    if (label === t.home.dailyPunch) {
+      if (isPunchedIn) {
         dispatch(
           setAlert(
-            `✨ ${label} ${t.buttons.comingSoon || 'Coming Soon!'}`,
-            'info',
+            t.alerts.alreadyPunchedIn || 'You are already punched in',
+            'error',
           ),
         );
+        return;
+      }
+      navigation.navigate('DailyPuch');
+      return;
     }
+
+    if (label === t.home.idleTracking) {
+      if (!isPunchedIn) {
+        dispatch(setAlert(t.alerts.punchInFirst, 'error'));
+        return;
+      }
+      if (isOnBreak) {
+        dispatch(setAlert(t.alerts.alreadyOnBreak, 'error'));
+        return;
+      }
+      setBreakModalVisible(true);
+      return;
+    }
+
+    if (label === 'Visit') {
+      if (!isPunchedIn) {
+        dispatch(
+          setAlert(t.alerts.punchInFirst || 'Please punch in first', 'error'),
+        );
+        return;
+      }
+      setVisitModalVisible(true);
+      return;
+    }
+
+    if (label === t.home.reports) {
+      navigation.navigate('Reports');
+      return;
+    }
+
+    if (label === t.home.leaveManagement) {
+      navigation.navigate('Leave');
+      return;
+    }
+
+    dispatch(
+      setAlert(`✨ ${label} ${t.buttons.comingSoon || 'Coming Soon!'}`, 'info'),
+    );
   };
 
   const handleBreakIn = async (breakType, remarks) => {
@@ -262,6 +283,25 @@ const HomeScreen = ({ navigation }) => {
         },
       },
     ]);
+  };
+
+  const handleVisitSubmit = async visitData => {
+    try {
+      setIsProcessing(true);
+      const result = await dispatch(logVisit(visitData));
+      if (result?.success) {
+        setVisitModalVisible(false);
+        dispatch(
+          setAlert(result?.message || 'Visit logged successfully', 'success'),
+        );
+      } else {
+        dispatch(setAlert(result?.message || 'Failed to log visit', 'error'));
+      }
+    } catch {
+      dispatch(setAlert(t.alerts.serverError, 'error'));
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handlePunchOut = async () => {
@@ -330,9 +370,7 @@ const HomeScreen = ({ navigation }) => {
 
   const formatMinutes = minutes => {
     if (!minutes && minutes !== 0) return '---';
-    if (minutes >= 60) {
-      return formatMinutesToHours(minutes);
-    }
+    if (minutes >= 60) return formatMinutesToHours(minutes);
     return `${minutes} ${t.attendance.min || 'min'}`;
   };
 
@@ -378,11 +416,7 @@ const HomeScreen = ({ navigation }) => {
       };
     }
     if (isOnBreak) {
-      return {
-        label: t.breaks.onBreak,
-        color: C.warning,
-        icon: Coffee,
-      };
+      return { label: t.breaks.onBreak, color: C.warning, icon: Coffee };
     }
     if (isPunchedIn) {
       if (isHalfDay) {
@@ -420,7 +454,6 @@ const HomeScreen = ({ navigation }) => {
   };
 
   const statusConfig = getStatusConfig();
-  const StatusIcon = statusConfig.icon;
   const isLoading =
     historyLoading ||
     punchOutLoading ||
@@ -442,42 +475,29 @@ const HomeScreen = ({ navigation }) => {
     { label: t.attendance.weeks || 'Weeks', value: 'weeks' },
   ];
 
-  const { profile, loading, error } = useSelector(
-    state => state.employeeProfile,
-  );
-  const fullName = profile?.[0]?.fullName || '';
-  const firstName = fullName.split(' ')[0] || 'Guest';
-
-  const reportingManager = profile?.[0]?.reportingTo;
-  const managerName = reportingManager?.name || 'Manager';
-  const managerEmail = reportingManager?.email || '';
-  const managerPhone = reportingManager?.phone || '';
-
   const renderShortLeaveInfo = () => {
-    if (morningShortLeave || eveningShortLeave) {
-      return (
-        <View
-          style={[
-            styles.shortLeaveContainer,
-            { backgroundColor: C.info + '08', borderColor: C.info + '30' },
-          ]}
-        >
-          {morningShortLeave && (
-            <Text style={[styles.shortLeaveText, { color: C.info }]}>
-              {t.attendance.morningShortLeave || 'Morning Short Leave'}:{' '}
-              {formatMinutes(morningShortLeaveMinutes)}
-            </Text>
-          )}
-          {eveningShortLeave && (
-            <Text style={[styles.shortLeaveText, { color: C.info }]}>
-              {t.attendance.eveningShortLeave || 'Evening Short Leave'}:{' '}
-              {formatMinutes(eveningShortLeaveMinutes)}
-            </Text>
-          )}
-        </View>
-      );
-    }
-    return null;
+    if (!morningShortLeave && !eveningShortLeave) return null;
+    return (
+      <View
+        style={[
+          styles.shortLeaveContainer,
+          { backgroundColor: C.info + '08', borderColor: C.info + '30' },
+        ]}
+      >
+        {morningShortLeave && (
+          <Text style={[styles.shortLeaveText, { color: C.info }]}>
+            {t.attendance.morningShortLeave || 'Morning Short Leave'}:{' '}
+            {formatMinutes(morningShortLeaveMinutes)}
+          </Text>
+        )}
+        {eveningShortLeave && (
+          <Text style={[styles.shortLeaveText, { color: C.info }]}>
+            {t.attendance.eveningShortLeave || 'Evening Short Leave'}:{' '}
+            {formatMinutes(eveningShortLeaveMinutes)}
+          </Text>
+        )}
+      </View>
+    );
   };
 
   const handleContactManager = type => {
@@ -490,13 +510,14 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
-  const shouldShowPunchOut = () => {
-    return isPunchedIn && !isOnBreak;
-  };
+  const shouldShowPunchOut = () => isPunchedIn && !isOnBreak;
 
-  const shouldShowBreakEnd = () => {
-    return isOnBreak;
-  };
+  // Derive card border color once
+  const cardBorderColor = isAbsent
+    ? C.error + '30'
+    : isHalfDay || isUserLate
+    ? C.warning + '30'
+    : C.border;
 
   return (
     <>
@@ -515,7 +536,23 @@ const HomeScreen = ({ navigation }) => {
           </View>
         </View>
       )}
-      <MainLayout hideBottomNav={false}>
+
+      <MainLayout
+        headerRightComponent={null}
+        title={null}
+        showBack={false}
+        headerBackgroundColor={C.background}
+        onMenuPress={null}
+        userName={firstName}
+        greeting={getGreeting()}
+        date={currentTime.toLocaleDateString('en-US', {
+          weekday: 'long',
+          month: 'long',
+          day: 'numeric',
+        })}
+        showProfile={true}
+        onProfilePress={() => setProfileModalVisible(true)}
+      >
         <StatusBar barStyle={C.statusBar} backgroundColor={C.background} />
 
         <BreakReasonModal
@@ -541,61 +578,15 @@ const HomeScreen = ({ navigation }) => {
             />
           }
         >
-          {/* Header */}
-          <View
-            style={[
-              styles.header,
-              { backgroundColor: C.background, borderBottomColor: C.border },
-            ]}
-          >
-            <View style={styles.headerLeft}>
-              <Text style={[styles.greeting, { color: C.textSecondary }]}>
-                {getGreeting()},
-              </Text>
-              <Text style={[styles.headerName, { color: C.textPrimary }]}>
-                {firstName} 👋
-              </Text>
-              <Text style={[styles.headerDate, { color: C.textSecondary }]}>
-                {currentTime.toLocaleDateString('en-US', {
-                  weekday: 'long',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              </Text>
-            </View>
-            <View style={styles.avatarWrap}>
-              <TouchableOpacity
-                style={[styles.avatar, { backgroundColor: C.primary }]}
-                onPress={() => setProfileModalVisible(true)}
-              >
-                <Text style={[styles.avatarText, { color: C.textDark }]}>
-                  {firstName.charAt(0).toUpperCase()}
-                </Text>
-              </TouchableOpacity>
-              <View
-                style={[
-                  styles.statusDotAvatar,
-                  {
-                    backgroundColor: isAbsent
-                      ? C.error
-                      : isPunchedIn
-                      ? C.success
-                      : hasAnySessionToday
-                      ? C.textSecondary
-                      : C.warning,
-                    borderColor: C.background,
-                  },
-                ]}
-              />
-            </View>
-          </View>
-
-          {/* Active Time - Only show if punched in */}
-          {isPunchedIn && (
+          {/* ActiveTimeDisplay */}
+          {(isPunchedIn || isOnBreak || hasAnySessionToday) && (
             <ActiveTimeDisplay
               punchInTime={todaysPunchIn}
               isOnBreak={isOnBreak}
               breakStartTime={currentBreak?.breakIn}
+              breakType={currentBreak?.breakType}
+              onEndBreak={handleBreakOut}
+              breakLoading={breakLoading || isProcessing}
               isAbsent={isAbsent}
               isPunchedIn={isPunchedIn}
               hasAnySessionToday={hasAnySessionToday}
@@ -605,24 +596,13 @@ const HomeScreen = ({ navigation }) => {
               lateMinutes={lateMinutes}
               earlyLeaveMinutes={earlyLeaveMinutes}
               todaysPunchIn={todaysPunchIn}
-              firstPunchIn={todayRecord?.firstPunchIn} // 👈 YEH EK LINE ADD KARO
+              firstPunchIn={todayRecord?.firstPunchIn}
               lastSession={lastSession}
               statusConfig={statusConfig}
             />
           )}
 
-          {/* Break Status Bar - Only show if on break */}
-          {shouldShowBreakEnd() && currentBreak && (
-            <BreakStatusBar
-              breakType={currentBreak.breakType}
-              breakStartTime={currentBreak.breakIn}
-              breakRemarks={currentBreak.remarks}
-              onEndBreak={handleBreakOut}
-              loading={breakLoading || isProcessing}
-            />
-          )}
-
-          {/* Quick Actions */}
+          {/* ── Quick Actions ── */}
           <View style={[styles.sectionRow, { backgroundColor: C.background }]}>
             <Text style={[styles.sectionLabel, { color: C.textSecondary }]}>
               {t.home.quickActions}
@@ -633,23 +613,20 @@ const HomeScreen = ({ navigation }) => {
             {quickActions.map((item, index) => {
               const Icon = item.icon;
               const isBreakAction = item.label === t.home.idleTracking;
-              const isDailyPunchAction = item.label === t.home.dailyPunch;
+              const isVisitAction = item.label === 'Visit';
               const isActive = isBreakAction && isOnBreak;
 
-              // Daily Punch is always enabled - user can punch in multiple times
-              // Break is disabled if not punched in or already on break
               const disabled =
-                isLoading || (isBreakAction && (!isPunchedIn || isOnBreak));
+                isLoading ||
+                (isBreakAction && (!isPunchedIn || isOnBreak)) ||
+                (isVisitAction && !isPunchedIn);
 
               return (
                 <TouchableOpacity
                   key={index}
                   style={[
                     styles.actionCard,
-                    {
-                      backgroundColor: C.surface,
-                      borderColor: C.border,
-                    },
+                    { backgroundColor: C.surface, borderColor: C.border },
                     disabled && styles.actionCardDisabled,
                     isActive && { borderColor: C.warning + '66' },
                   ]}
@@ -678,6 +655,7 @@ const HomeScreen = ({ navigation }) => {
                       { color: C.iconTitle },
                       disabled && { color: C.disabled },
                     ]}
+                    numberOfLines={1}
                   >
                     {item.label}
                   </Text>
@@ -695,19 +673,22 @@ const HomeScreen = ({ navigation }) => {
                       </Text>
                     </View>
                   )}
-                  {isBreakAction && !isPunchedIn && !isActive && (
-                    <Text
-                      style={[styles.actionHint, { color: C.textSecondary }]}
-                    >
-                      {t.attendance.needCheckIn || 'Need check-in'}
-                    </Text>
-                  )}
+                  {(isBreakAction || isVisitAction) &&
+                    !isPunchedIn &&
+                    !isActive && (
+                      <Text
+                        style={[styles.actionHint, { color: C.textSecondary }]}
+                        numberOfLines={1}
+                      >
+                        {t.attendance.needCheckIn || 'Need check-in'}
+                      </Text>
+                    )}
                 </TouchableOpacity>
               );
             })}
           </View>
 
-          {/* Today's Activity */}
+          {/* ── Today's Activity header ── */}
           <View style={[styles.sectionRow, { backgroundColor: C.background }]}>
             <Text style={[styles.sectionLabel, { color: C.textSecondary }]}>
               {t.home.todaysActivity}
@@ -721,7 +702,6 @@ const HomeScreen = ({ navigation }) => {
             >
               <Text style={[styles.formatPillText, { color: C.textSecondary }]}>
                 {formatOptions.find(f => f.value === durationFormat)?.label ||
-                  t.attendance.auto ||
                   'Auto'}
               </Text>
               <ChevronDown size={wp('3.5%')} color={C.textSecondary} />
@@ -767,7 +747,7 @@ const HomeScreen = ({ navigation }) => {
             </View>
           )}
 
-          {/* Attendance Card */}
+          {/* ── Attendance Card ── */}
           {historyLoading && !refreshing ? (
             <View
               style={[
@@ -784,20 +764,14 @@ const HomeScreen = ({ navigation }) => {
             <View
               style={[
                 styles.card,
-                {
-                  backgroundColor: C.surface,
-                  borderColor: isAbsent
-                    ? C.error + '30'
-                    : isHalfDay || isUserLate
-                    ? C.warning + '30'
-                    : C.border,
-                },
+                { backgroundColor: C.surface, borderColor: cardBorderColor },
               ]}
             >
-              {/* Card Header */}
+              {/* ── Card Header ── */}
               <View
                 style={[styles.cardHeader, { borderBottomColor: C.border }]}
               >
+                {/* Left: avatar + status/time stack */}
                 <View style={styles.cardUserRow}>
                   {lastImage ? (
                     <Image
@@ -818,7 +792,9 @@ const HomeScreen = ({ navigation }) => {
                       <User size={wp('5%')} color={C.textSecondary} />
                     </View>
                   )}
-                  <View>
+
+                  {/* Status pill + punch time — flex:1 keeps it from pushing the button */}
+                  <View style={styles.cardInfoCol}>
                     <View
                       style={[
                         styles.statusPill,
@@ -845,8 +821,6 @@ const HomeScreen = ({ navigation }) => {
                               ? isHalfDay || isUserLate
                                 ? C.warning
                                 : C.success
-                              : hasAnySessionToday
-                              ? C.textSecondary
                               : C.textSecondary,
                           },
                         ]}
@@ -861,11 +835,10 @@ const HomeScreen = ({ navigation }) => {
                               ? isHalfDay || isUserLate
                                 ? C.warning
                                 : C.success
-                              : hasAnySessionToday
-                              ? C.textSecondary
                               : C.textSecondary,
                           },
                         ]}
+                        numberOfLines={1}
                       >
                         {isAbsent
                           ? t.attendance.absent || 'ABSENT'
@@ -900,7 +873,7 @@ const HomeScreen = ({ navigation }) => {
                   </View>
                 </View>
 
-                {/* Show Punch Out button only if punched in AND not on break */}
+                {/* Punch Out button — shrinks instead of overflowing */}
                 {shouldShowPunchOut() && (
                   <TouchableOpacity
                     style={[
@@ -913,11 +886,12 @@ const HomeScreen = ({ navigation }) => {
                   >
                     <LogOut
                       size={wp('3.5%')}
-                      color={C.textPrimary}
+                      color="#fff"
                       style={{ marginRight: 4 }}
                     />
                     <Text
-                      style={[styles.punchOutBtnText, { color: C.textPrimary }]}
+                      style={[styles.punchOutBtnText, { color: '#fff' }]}
+                      numberOfLines={1}
                     >
                       {punchOutLoading || isProcessing
                         ? t.attendance.processing
@@ -927,73 +901,104 @@ const HomeScreen = ({ navigation }) => {
                 )}
               </View>
 
-              {/* Stats */}
-              <View
-                style={[
-                  styles.statsRow,
-                  {
-                    backgroundColor: C.background + '80',
-                    borderColor: C.border,
-                  },
-                ]}
-              >
-                <View style={styles.statBox}>
+              {/* ── Stats Row ── */}
+              <View style={[styles.statsRow, { borderBottomColor: C.border }]}>
+                {/* Working time */}
+                <View style={styles.statItem}>
                   <View
                     style={[
                       styles.statIconWrap,
                       { backgroundColor: C.primary + '15' },
                     ]}
                   >
-                    <TrendingUp size={wp('4%')} color={C.primary} />
+                    <TrendingUp size={wp('3.5%')} color={C.primary} />
                   </View>
-                  <Text style={[styles.statValue, { color: C.textPrimary }]}>
-                    {getFormattedDuration(totalMinutes)}
-                  </Text>
-                  <Text style={[styles.statLabel, { color: C.textSecondary }]}>
-                    {t.attendance.workingTime}
-                  </Text>
+                  <View style={styles.statTextCol}>
+                    <Text
+                      style={[styles.statValue, { color: C.textPrimary }]}
+                      numberOfLines={1}
+                    >
+                      {getFormattedDuration(totalMinutes)}
+                    </Text>
+                    <Text
+                      style={[styles.statLabel, { color: C.textSecondary }]}
+                      numberOfLines={1}
+                    >
+                      {t.attendance.workingTime}
+                    </Text>
+                  </View>
                 </View>
+
                 <View
                   style={[styles.statDivider, { backgroundColor: C.border }]}
                 />
-                <View style={styles.statBox}>
+
+                {/* Break time */}
+                <View style={styles.statItem}>
                   <View
                     style={[
                       styles.statIconWrap,
                       { backgroundColor: C.warning + '15' },
                     ]}
                   >
-                    <Coffee size={wp('4%')} color={C.warning} />
+                    <Coffee size={wp('3.5%')} color={C.warning} />
                   </View>
-                  <Text style={[styles.statValue, { color: C.textPrimary }]}>
-                    {getFormattedDuration(totalBreakMinutes)}
-                  </Text>
-                  <Text style={[styles.statLabel, { color: C.textSecondary }]}>
-                    {t.attendance.breakTime}
-                  </Text>
+                  <View style={styles.statTextCol}>
+                    <Text
+                      style={[styles.statValue, { color: C.textPrimary }]}
+                      numberOfLines={1}
+                    >
+                      {getFormattedDuration(totalBreakMinutes)}
+                    </Text>
+                    <Text
+                      style={[styles.statLabel, { color: C.textSecondary }]}
+                      numberOfLines={1}
+                    >
+                      {t.attendance.breakTime}
+                    </Text>
+                  </View>
                 </View>
+
+                {breakCount > 0 && (
+                  <>
+                    <View
+                      style={[
+                        styles.statDivider,
+                        { backgroundColor: C.border },
+                      ]}
+                    />
+                    <View style={styles.statItem}>
+                      <View
+                        style={[
+                          styles.statIconWrap,
+                          { backgroundColor: C.info + '15' },
+                        ]}
+                      >
+                        <Clock size={wp('3.5%')} color={C.info} />
+                      </View>
+                      <View style={styles.statTextCol}>
+                        <Text
+                          style={[styles.statValue, { color: C.textPrimary }]}
+                          numberOfLines={1}
+                        >
+                          {breakCount}
+                        </Text>
+                        <Text
+                          style={[styles.statLabel, { color: C.textSecondary }]}
+                          numberOfLines={1}
+                        >
+                          {t.attendance.breakCount || 'Breaks'}
+                        </Text>
+                      </View>
+                    </View>
+                  </>
+                )}
               </View>
 
-              {/* Break Count */}
-              {breakCount > 0 && (
-                <View
-                  style={[
-                    styles.breakCountContainer,
-                    { borderBottomColor: C.border },
-                  ]}
-                >
-                  <Text
-                    style={[styles.breakCountText, { color: C.textSecondary }]}
-                  >
-                    {t.attendance.breakCount || 'Break Count'}: {breakCount}
-                  </Text>
-                </View>
-              )}
-
-              {/* Short Leave Info */}
+              {/* Short Leave */}
               {renderShortLeaveInfo()}
 
-              {/* Late/Early Leave Info */}
+              {/* Late / Early Leave / Half Day */}
               {(isUserLate || isEarlyLeave || isHalfDay) && (
                 <View
                   style={[
@@ -1024,7 +1029,7 @@ const HomeScreen = ({ navigation }) => {
                 </View>
               )}
 
-              {/* Breaks */}
+              {/* ── Breaks List ── */}
               {sessions.map(
                 (session, si) =>
                   session.breaks?.length > 0 && (
@@ -1051,9 +1056,14 @@ const HomeScreen = ({ navigation }) => {
                           key={bi}
                           style={[
                             styles.breakRow,
-                            { borderBottomColor: C.border },
+                            {
+                              borderBottomColor: C.border,
+                              borderBottomWidth:
+                                bi < session.breaks.length - 1 ? 1 : 0,
+                            },
                           ]}
                         >
+                          {/* Left: type badge + remarks + time range */}
                           <View style={styles.breakRowLeft}>
                             <View
                               style={[
@@ -1078,26 +1088,29 @@ const HomeScreen = ({ navigation }) => {
                                       : C.warning,
                                   },
                                 ]}
+                                numberOfLines={1}
                               >
                                 {b.breakType}
                               </Text>
                             </View>
-                            {b.remarks && (
+                            {b.remarks ? (
                               <Text
                                 style={[
                                   styles.breakRemark,
                                   { color: C.textSecondary },
                                 ]}
+                                numberOfLines={2}
                               >
                                 {t.attendance.breakRemarks || 'Remarks'}:{' '}
                                 {b.remarks}
                               </Text>
-                            )}
+                            ) : null}
                             <Text
                               style={[
                                 styles.breakTimeRange,
                                 { color: C.textSecondary },
                               ]}
+                              numberOfLines={1}
                             >
                               {formatTime(b.breakIn)}
                               {b.breakOut
@@ -1105,6 +1118,8 @@ const HomeScreen = ({ navigation }) => {
                                 : ` → ${t.attendance.ongoing || 'Ongoing'}`}
                             </Text>
                           </View>
+
+                          {/* Right: duration badge */}
                           <View
                             style={[
                               styles.breakDurationBadge,
@@ -1136,7 +1151,7 @@ const HomeScreen = ({ navigation }) => {
                   ),
               )}
 
-              {/* Sessions Table */}
+              {/* ── Sessions Table ── */}
               {sessions.length > 0 && (
                 <View style={[styles.tableSection, { borderColor: C.border }]}>
                   <View
@@ -1148,18 +1163,26 @@ const HomeScreen = ({ navigation }) => {
                     <Text
                       style={[
                         styles.tableHeadCell,
-                        { textAlign: 'left', color: C.primary },
+                        styles.tableCellLeft,
+                        { color: C.primary },
                       ]}
                     >
                       {t.attendance.in || 'IN'}
                     </Text>
-                    <Text style={[styles.tableHeadCell, { color: C.primary }]}>
+                    <Text
+                      style={[
+                        styles.tableHeadCell,
+                        styles.tableCellCenter,
+                        { color: C.primary },
+                      ]}
+                    >
                       {t.attendance.duration || 'DURATION'}
                     </Text>
                     <Text
                       style={[
                         styles.tableHeadCell,
-                        { textAlign: 'right', color: C.primary },
+                        styles.tableCellRight,
+                        { color: C.primary },
                       ]}
                     >
                       {t.attendance.out || 'OUT'}
@@ -1170,23 +1193,29 @@ const HomeScreen = ({ navigation }) => {
                       key={i}
                       style={[
                         styles.tableBodyRow,
-                        { backgroundColor: C.surface },
-                        i % 2 === 0 && { backgroundColor: C.background + '80' },
+                        {
+                          backgroundColor:
+                            i % 2 === 0 ? C.background + '80' : C.surface,
+                        },
                       ]}
                     >
                       <Text
                         style={[
                           styles.tableBodyCell,
-                          { textAlign: 'left', color: C.success },
+                          styles.tableCellLeft,
+                          { color: C.success },
                         ]}
+                        numberOfLines={1}
                       >
                         {session.punchIn ? formatTime(session.punchIn) : '---'}
                       </Text>
                       <Text
                         style={[
                           styles.tableBodyCell,
+                          styles.tableCellCenter,
                           { color: C.textSecondary },
                         ]}
+                        numberOfLines={1}
                       >
                         {session.durationMinutes
                           ? getFormattedDuration(session.durationMinutes)
@@ -1195,8 +1224,10 @@ const HomeScreen = ({ navigation }) => {
                       <Text
                         style={[
                           styles.tableBodyCell,
-                          { textAlign: 'right', color: C.error },
+                          styles.tableCellRight,
+                          { color: C.error },
                         ]}
+                        numberOfLines={1}
                       >
                         {session.punchOut
                           ? formatTime(session.punchOut)
@@ -1207,15 +1238,12 @@ const HomeScreen = ({ navigation }) => {
                 </View>
               )}
 
-              {/* Absent Message */}
+              {/* ── Absent Block ── */}
               {isAbsent && (
                 <View
                   style={[
                     styles.absentContainer,
-                    {
-                      backgroundColor: C.surface,
-                      borderColor: C.error + '30',
-                    },
+                    { backgroundColor: C.surface, borderColor: C.error + '30' },
                   ]}
                 >
                   <View
@@ -1244,9 +1272,8 @@ const HomeScreen = ({ navigation }) => {
                     >
                       {t.attendance.contactManager || 'Contact Your Manager'}
                     </Text>
-
                     <View style={styles.contactButtonsRow}>
-                      {managerEmail && (
+                      {managerEmail ? (
                         <TouchableOpacity
                           style={[
                             styles.contactButton,
@@ -1267,9 +1294,8 @@ const HomeScreen = ({ navigation }) => {
                             {t.attendance.email || 'Email'}
                           </Text>
                         </TouchableOpacity>
-                      )}
-
-                      {managerPhone && (
+                      ) : null}
+                      {managerPhone ? (
                         <TouchableOpacity
                           style={[
                             styles.contactButton,
@@ -1290,9 +1316,8 @@ const HomeScreen = ({ navigation }) => {
                             {t.attendance.call || 'Call'}
                           </Text>
                         </TouchableOpacity>
-                      )}
+                      ) : null}
                     </View>
-
                     <Text
                       style={[styles.managerName, { color: C.textSecondary }]}
                     >
@@ -1323,8 +1348,8 @@ const HomeScreen = ({ navigation }) => {
                 </View>
               )}
 
-              {/* Location */}
-              {lastSession?.punchInLocation && (
+              {/* ── Location Row ── */}
+              {lastSession?.punchInLocation ? (
                 <View
                   style={[styles.locationRow, { borderTopColor: C.border }]}
                 >
@@ -1332,15 +1357,17 @@ const HomeScreen = ({ navigation }) => {
                   <Text
                     style={[styles.locationText, { color: C.textSecondary }]}
                     numberOfLines={1}
+                    ellipsizeMode="tail"
                   >
                     {lastSession.punchInLocation.address ||
                       t.attendance.locationRecorded ||
                       'Location recorded'}
                   </Text>
                 </View>
-              )}
+              ) : null}
             </View>
           ) : (
+            /* ── Empty state ── */
             <View
               style={[
                 styles.emptyCard,
@@ -1389,7 +1416,7 @@ const HomeScreen = ({ navigation }) => {
         </ScrollView>
       </MainLayout>
 
-      {/* Profile Modal */}
+      {/* ── Profile Modal ── */}
       <Modal
         visible={profileModalVisible}
         animationType="slide"
@@ -1411,11 +1438,9 @@ const HomeScreen = ({ navigation }) => {
                   {profile?.[0]?.fullName?.charAt(0).toUpperCase() || 'G'}
                 </Text>
               </View>
-
               <Text style={[styles.profileName, { color: C.textPrimary }]}>
                 {profile?.[0]?.fullName || 'Guest'}
               </Text>
-
               <Text
                 style={[styles.profileDesignation, { color: C.textSecondary }]}
               >
@@ -1424,48 +1449,49 @@ const HomeScreen = ({ navigation }) => {
             </View>
 
             <View style={styles.profileInfoSection}>
-              <View style={styles.profileRow}>
-                <Text style={[styles.profileLabel, { color: C.textSecondary }]}>
-                  {t.settings.employeeCode || 'Employee Code'}
-                </Text>
-                <Text style={[styles.profileValue, { color: C.textPrimary }]}>
-                  {profile?.[0]?.employeeCode || '-'}
-                </Text>
-              </View>
-
-              <View style={styles.profileRow}>
-                <Text style={[styles.profileLabel, { color: C.textSecondary }]}>
-                  {t.login.emailLabel || 'Email'}
-                </Text>
-                <Text style={[styles.profileValue, { color: C.textPrimary }]}>
-                  {profile?.[0]?.email || '-'}
-                </Text>
-              </View>
-
-              <View style={styles.profileRow}>
-                <Text style={[styles.profileLabel, { color: C.textSecondary }]}>
-                  {t.attendance.department || 'Department'}
-                </Text>
-                <Text style={[styles.profileValue, { color: C.textPrimary }]}>
-                  {profile?.[0]?.department || '-'}
-                </Text>
-              </View>
-
-              <View style={styles.profileRow}>
-                <Text style={[styles.profileLabel, { color: C.textSecondary }]}>
-                  {t.attendance.reportingManager || 'Reporting Manager'}
-                </Text>
-                <Text style={[styles.profileValue, { color: C.textPrimary }]}>
-                  {profile?.[0]?.reportingTo?.name || '-'}
-                </Text>
-              </View>
+              {[
+                {
+                  label: t.settings.employeeCode || 'Employee Code',
+                  value: profile?.[0]?.employeeCode || '-',
+                },
+                {
+                  label: t.login.emailLabel || 'Email',
+                  value: profile?.[0]?.email || '-',
+                },
+                {
+                  label: t.attendance.department || 'Department',
+                  value: profile?.[0]?.department || '-',
+                },
+                {
+                  label: t.attendance.reportingManager || 'Reporting Manager',
+                  value: profile?.[0]?.reportingTo?.name || '-',
+                },
+              ].map((row, i) => (
+                <View
+                  key={i}
+                  style={[styles.profileRow, { borderBottomColor: C.border }]}
+                >
+                  <Text
+                    style={[styles.profileLabel, { color: C.textSecondary }]}
+                  >
+                    {row.label}
+                  </Text>
+                  <Text
+                    style={[styles.profileValue, { color: C.textPrimary }]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {row.value}
+                  </Text>
+                </View>
+              ))}
             </View>
 
             <TouchableOpacity
-              style={[styles.closeBtn, { backgroundColor: C.primary }]}
+              style={[styles.profileCloseBtn, { backgroundColor: C.primary }]}
               onPress={() => setProfileModalVisible(false)}
             >
-              <Text style={[styles.closeBtnText, { color: C.textDark }]}>
+              <Text style={[styles.profileCloseBtnText, { color: C.textDark }]}>
                 {t.buttons.close || 'Close'}
               </Text>
             </TouchableOpacity>
@@ -1476,145 +1502,36 @@ const HomeScreen = ({ navigation }) => {
   );
 };
 
+// ─── Styles ──────────────────────────────────────────────────────────────────
+const CARD_H_PAD = wp('4%');
+const ACTION_GAP = wp('2.5%');
+// 2 columns, screen padding 0 (MainLayout handles it), gap between cards
+const ACTION_CARD_WIDTH = (wp('100%') - wp('10%') - ACTION_GAP) / 2.25;
+
 const styles = StyleSheet.create({
   scrollContent: {
-    paddingBottom: hp('2'),
+    paddingHorizontal: wp('4%'),
+    paddingBottom: hp('2%'),
   },
-  modalOverlay: {
-    flex: 1,
+
+  // ── Overlay ──
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: wp('6%'),
+    zIndex: 9999,
+    elevation: 9999,
   },
-  profileModalCard: {
-    width: '100%',
-    borderRadius: wp('5%'),
-    padding: wp('6%'),
+  overlayCard: {
+    borderRadius: wp('4%'),
+    padding: wp('8%'),
+    alignItems: 'center',
+    gap: hp('1.5%'),
     borderWidth: 1,
   },
-  profileHeader: {
-    alignItems: 'center',
-    marginBottom: hp('2%'),
-  },
-  profileAvatar: {
-    width: wp('18%'),
-    height: wp('18%'),
-    borderRadius: wp('9%'),
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: hp('1%'),
-  },
-  profileAvatarText: {
-    fontSize: wp('7%'),
-    fontFamily: Fonts.bold,
-  },
-  profileName: {
-    fontSize: wp('5%'),
-    fontFamily: Fonts.bold,
-  },
-  profileDesignation: {
-    fontSize: wp('3.5%'),
-    fontFamily: Fonts.regular,
-    marginTop: 4,
-  },
-  profileInfoSection: {
-    marginTop: hp('2%'),
-  },
-  profileRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: hp('1.2%'),
-  },
-  profileLabel: {
-    fontSize: wp('3.2%'),
-    fontFamily: Fonts.medium,
-  },
-  profileValue: {
-    fontSize: wp('3.2%'),
-    fontFamily: Fonts.regular,
-  },
-  closeBtn: {
-    marginTop: hp('2.5%'),
-    paddingVertical: hp('1.2%'),
-    borderRadius: wp('3%'),
-    alignItems: 'center',
-  },
-  closeBtnText: {
-    fontSize: wp('3.5%'),
-    fontFamily: Fonts.medium,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    borderBottomWidth: 1,
-  },
-  headerLeft: { flex: 1 },
-  greeting: {
-    fontSize: wp('3.5%'),
-    fontFamily: Fonts.regular,
-    marginBottom: 2,
-  },
-  headerName: {
-    fontSize: wp('6%'),
-    fontFamily: Fonts.bold,
-    letterSpacing: -0.3,
-  },
-  headerDate: {
-    fontSize: wp('3%'),
-    fontFamily: Fonts.regular,
-    marginTop: 4,
-  },
-  avatarWrap: { position: 'relative', marginTop: 2 },
-  avatar: {
-    width: wp('12%'),
-    height: wp('12%'),
-    borderRadius: wp('6%'),
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    fontSize: wp('5%'),
-    fontFamily: Fonts.bold,
-  },
-  statusDotAvatar: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: wp('3%'),
-    height: wp('3%'),
-    borderRadius: wp('1.5%'),
-    borderWidth: 2,
-  },
-  statusBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: hp('1.5%'),
-    paddingVertical: hp('1.2%'),
-    paddingHorizontal: wp('4%'),
-    borderRadius: wp('3%'),
-    gap: wp('2%'),
-  },
-  statusBannerText: {
-    fontSize: wp('3.2%'),
-    fontFamily: Fonts.medium,
-  },
-  statusBannerTime: {
-    fontSize: wp('3%'),
-    fontFamily: Fonts.regular,
-  },
-  lateLogin: {
-    fontSize: wp('3%'),
-    fontFamily: Fonts.regular,
-  },
-  halfDayText: {
-    fontSize: wp('3%'),
-    fontFamily: Fonts.medium,
-  },
-  earlyLeaveText: {
-    fontSize: wp('3%'),
-    fontFamily: Fonts.medium,
-  },
+  overlayText: { fontSize: wp('3.5%'), fontFamily: Fonts.medium },
+
+  // ── Section header ──
   sectionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1626,19 +1543,27 @@ const styles = StyleSheet.create({
     fontSize: wp('2.8%'),
     fontFamily: Fonts.medium,
     letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
+
+  // ── Quick actions grid ──
   actionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: wp('2.5%'),
+    gap: ACTION_GAP,
   },
   actionCard: {
-    width: (wp('100%') - wp('8%') - wp('2.5%') * 3) / 2,
+    width: ACTION_CARD_WIDTH,
     borderRadius: wp('4%'),
     paddingVertical: hp('1.8%'),
+    paddingHorizontal: wp('2%'),
     alignItems: 'center',
     borderWidth: 1,
-    elevation: 3,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
   },
   actionCardDisabled: { opacity: 0.4 },
   actionIconWrap: {
@@ -1650,25 +1575,25 @@ const styles = StyleSheet.create({
     marginBottom: hp('0.8%'),
   },
   actionLabel: {
-    fontSize: wp('2.5%'),
+    fontSize: wp('2.8%'),
     fontFamily: Fonts.medium,
     textAlign: 'center',
   },
   actionHint: {
-    fontSize: wp('2%'),
+    fontSize: wp('2.2%'),
     fontFamily: Fonts.regular,
-    marginTop: 4,
+    marginTop: 3,
+    textAlign: 'center',
   },
   activePill: {
-    paddingHorizontal: wp('2%'),
+    paddingHorizontal: wp('2.5%'),
     paddingVertical: 2,
     borderRadius: 20,
     marginTop: 4,
   },
-  activePillText: {
-    fontSize: wp('2%'),
-    fontFamily: Fonts.medium,
-  },
+  activePillText: { fontSize: wp('2%'), fontFamily: Fonts.medium },
+
+  // ── Format pill / dropdown ──
   formatPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1678,62 +1603,68 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 4,
   },
-  formatPillText: {
-    fontSize: wp('2.8%'),
-    fontFamily: Fonts.regular,
-  },
+  formatPillText: { fontSize: wp('2.8%'), fontFamily: Fonts.regular },
   dropdown: {
-    marginHorizontal: wp('5%'),
     marginBottom: hp('1%'),
     borderRadius: wp('3%'),
     borderWidth: 1,
     overflow: 'hidden',
+    elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.15,
     shadowRadius: 10,
-    elevation: 8,
   },
   dropdownItem: {
     paddingVertical: hp('1.2%'),
     paddingHorizontal: wp('4%'),
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  dropdownText: {
-    fontSize: wp('3.2%'),
-    fontFamily: Fonts.regular,
-  },
+  dropdownText: { fontSize: wp('3.2%'), fontFamily: Fonts.regular },
+
+  // ── Main attendance card ──
   card: {
     borderRadius: wp('5%'),
     borderWidth: 1,
     overflow: 'hidden',
+    elevation: 3,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
   },
+
+  // Card header — key fix: no fixed heights, proper flex
   cardHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: wp('4%'),
-    borderBottomWidth: 1,
+    justifyContent: 'space-between',
+    padding: CARD_H_PAD,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: wp('2%'),
   },
   cardUserRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: wp('3%'),
+    flex: 1, // ← takes remaining space, lets button sit at its natural size
+    minWidth: 0, // ← allows inner content to shrink
   },
   cardAvatar: {
     width: wp('12%'),
     height: wp('12%'),
     borderRadius: wp('6%'),
     borderWidth: 2,
+    flexShrink: 0, // ← avatar never shrinks
   },
   cardAvatarPlaceholder: {
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  // New: text column next to avatar — flex:1 so it shrinks before button
+  cardInfoCol: {
+    flex: 1,
+    minWidth: 0,
   },
   statusPill: {
     flexDirection: 'row',
@@ -1744,121 +1675,135 @@ const styles = StyleSheet.create({
     gap: 5,
     alignSelf: 'flex-start',
     marginBottom: 4,
+    maxWidth: '100%',
   },
-  statusPillDot: { width: 6, height: 6, borderRadius: 3 },
+  statusPillDot: { width: 6, height: 6, borderRadius: 3, flexShrink: 0 },
   statusPillText: {
     fontSize: wp('2.4%'),
     fontFamily: Fonts.medium,
     letterSpacing: 0.3,
+    flexShrink: 1,
   },
   cardPunchTime: {
     fontSize: wp('4%'),
     fontFamily: Fonts.bold,
+    lineHeight: wp('5.5%'),
   },
   cardPunchDate: {
     fontSize: wp('2.8%'),
     fontFamily: Fonts.regular,
     marginTop: 1,
   },
+  // Punch-out button — fixed width, never expands, never overflows
   punchOutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: wp('3.5%'),
-    paddingVertical: hp('1%'),
+    justifyContent: 'center',
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.9%'),
     borderRadius: wp('2.5%'),
+    flexShrink: 0,
+    minWidth: wp('20%'),
   },
   punchOutBtnText: {
-    fontSize: wp('2.8%'),
+    fontSize: wp('2.6%'),
     fontFamily: Fonts.medium,
+    flexShrink: 1,
   },
+
+  // ── Stats row ──
   statsRow: {
     flexDirection: 'row',
-    margin: wp('4%'),
-    borderRadius: wp('3%'),
-    overflow: 'hidden',
-    borderWidth: 1,
-  },
-  statBox: {
-    flex: 1,
     alignItems: 'center',
-    paddingVertical: hp('1.5%'),
+    paddingHorizontal: CARD_H_PAD,
+    paddingVertical: hp('1.4%'),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  statItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp('2%'),
+    minWidth: 0,
   },
   statIconWrap: {
-    width: wp('8%'),
-    height: wp('8%'),
-    borderRadius: wp('2.5%'),
+    width: wp('7%'),
+    height: wp('7%'),
+    borderRadius: wp('2%'),
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: hp('0.5%'),
+    flexShrink: 0,
+  },
+  // New wrapper for stat text to allow proper truncation
+  statTextCol: {
+    flex: 1,
+    minWidth: 0,
   },
   statValue: {
-    fontSize: wp('4%'),
+    fontSize: wp('3.5%'),
     fontFamily: Fonts.bold,
   },
   statLabel: {
-    fontSize: wp('2.6%'),
+    fontSize: wp('2.4%'),
     fontFamily: Fonts.regular,
-    marginTop: 2,
+    marginTop: 1,
   },
   statDivider: {
-    width: 1,
-    marginVertical: wp('3%'),
+    width: StyleSheet.hairlineWidth,
+    height: hp('4%'),
+    marginHorizontal: wp('1.5%'),
+    flexShrink: 0,
   },
-  breakCountContainer: {
-    marginHorizontal: wp('4%'),
-    marginBottom: hp('1%'),
-    paddingVertical: hp('0.5%'),
-    borderBottomWidth: 1,
-  },
-  breakCountText: {
-    fontSize: wp('2.8%'),
-    fontFamily: Fonts.regular,
-  },
+
+  // ── Short leave ──
   shortLeaveContainer: {
-    marginHorizontal: wp('4%'),
-    marginBottom: hp('1%'),
-    padding: wp('2%'),
-    borderRadius: wp('2%'),
-    borderWidth: 1,
-  },
-  shortLeaveText: {
-    fontSize: wp('2.8%'),
-    fontFamily: Fonts.medium,
-  },
-  alertInfo: {
-    marginHorizontal: wp('4%'),
-    marginBottom: hp('1.5%'),
+    margin: CARD_H_PAD,
+    marginBottom: 0,
     padding: wp('3%'),
-    borderRadius: wp('2%'),
+    borderRadius: wp('2.5%'),
     borderWidth: 1,
-    alignItems: 'center',
+    gap: 4,
   },
-  alertText: {
-    fontSize: wp('3%'),
-    fontFamily: Fonts.medium,
+  shortLeaveText: { fontSize: wp('2.8%'), fontFamily: Fonts.medium },
+
+  // ── Alert info ──
+  alertInfo: {
+    margin: CARD_H_PAD,
+    marginBottom: 0,
+    padding: wp('3%'),
+    borderRadius: wp('2.5%'),
+    borderWidth: 1,
+    gap: 4,
   },
+  alertText: { fontSize: wp('3%'), fontFamily: Fonts.medium },
+
+  // ── Breaks section ──
   breaksSection: {
-    marginHorizontal: wp('4%'),
-    marginBottom: hp('1.5%'),
+    margin: CARD_H_PAD,
+    marginBottom: 0,
     borderRadius: wp('3%'),
     padding: wp('3%'),
     borderWidth: 1,
   },
   breaksSectionTitle: {
-    fontSize: wp('2.8%'),
+    fontSize: wp('2.6%'),
     fontFamily: Fonts.medium,
     marginBottom: hp('0.8%'),
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
   },
   breakRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: hp('0.8%'),
-    borderBottomWidth: 1,
+    justifyContent: 'space-between',
+    paddingVertical: hp('0.9%'),
+    gap: wp('2%'),
   },
-  breakRowLeft: { flex: 1, marginRight: wp('2%') },
+  breakRowLeft: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
   breakTypeBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1867,29 +1812,36 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 20,
     gap: 4,
-    marginBottom: 3,
+    maxWidth: '100%',
   },
-  breakTypeBadgeText: { fontSize: wp('2.6%'), fontFamily: Fonts.medium },
+  breakTypeBadgeText: {
+    fontSize: wp('2.6%'),
+    fontFamily: Fonts.medium,
+    flexShrink: 1,
+  },
   breakRemark: {
     fontSize: wp('2.6%'),
     fontFamily: Fonts.regular,
-    marginLeft: wp('1%'),
-    marginBottom: 2,
+    paddingLeft: 2,
   },
   breakTimeRange: {
     fontSize: wp('2.6%'),
     fontFamily: Fonts.regular,
-    marginLeft: wp('1%'),
+    paddingLeft: 2,
   },
   breakDurationBadge: {
     paddingHorizontal: wp('2.5%'),
     paddingVertical: hp('0.4%'),
     borderRadius: 20,
+    flexShrink: 0,
+    alignSelf: 'center',
   },
   breakDurationText: { fontSize: wp('2.8%'), fontFamily: Fonts.medium },
+
+  // ── Sessions table ──
   tableSection: {
-    marginHorizontal: wp('4%'),
-    marginBottom: hp('1.5%'),
+    margin: CARD_H_PAD,
+    marginBottom: 0,
     borderRadius: wp('3%'),
     overflow: 'hidden',
     borderWidth: 1,
@@ -1899,29 +1851,32 @@ const styles = StyleSheet.create({
     paddingVertical: hp('1%'),
     paddingHorizontal: wp('3%'),
   },
-  tableHeadCell: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: wp('2.5%'),
-    fontFamily: Fonts.medium,
-    letterSpacing: 0.4,
-  },
   tableBodyRow: {
     flexDirection: 'row',
     paddingVertical: hp('1%'),
     paddingHorizontal: wp('3%'),
   },
+  tableHeadCell: {
+    flex: 1,
+    fontSize: wp('2.5%'),
+    fontFamily: Fonts.medium,
+    letterSpacing: 0.4,
+  },
   tableBodyCell: {
     flex: 1,
-    textAlign: 'center',
     fontSize: wp('3%'),
     fontFamily: Fonts.regular,
   },
+  // Alignment helpers — avoids conflicting textAlign in StyleSheet
+  tableCellLeft: { textAlign: 'left' },
+  tableCellCenter: { textAlign: 'center' },
+  tableCellRight: { textAlign: 'right' },
+
+  // ── Absent block ──
   absentContainer: {
     alignItems: 'center',
-    justifyContent: 'center',
     padding: hp('3%'),
-    margin: wp('4%'),
+    margin: CARD_H_PAD,
     borderRadius: wp('4%'),
     borderWidth: 1,
   },
@@ -1969,45 +1924,36 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: wp('1.5%'),
   },
-  contactButtonText: {
-    fontSize: wp('2.8%'),
-    fontFamily: Fonts.medium,
-  },
-  managerName: {
-    fontSize: wp('2.8%'),
-    fontFamily: Fonts.regular,
-  },
-  absentDivider: {
-    height: 1,
-    width: '30%',
-    marginBottom: hp('2%'),
-  },
+  contactButtonText: { fontSize: wp('2.8%'), fontFamily: Fonts.medium },
+  managerName: { fontSize: wp('2.8%'), fontFamily: Fonts.regular },
+  absentDivider: { height: 1, width: '30%', marginBottom: hp('2%') },
   absentContactBtn: {
     paddingHorizontal: wp('6%'),
     paddingVertical: hp('1.2%'),
     borderRadius: wp('5%'),
     borderWidth: 1,
   },
-  absentContactText: {
-    fontSize: wp('3.2%'),
-    fontFamily: Fonts.medium,
-  },
+  absentContactText: { fontSize: wp('3.2%'), fontFamily: Fonts.medium },
+
+  // ── Location row ──
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: wp('2%'),
-    padding: wp('4%'),
-    borderTopWidth: 1,
+    padding: CARD_H_PAD,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: CARD_H_PAD,
   },
   locationText: {
     flex: 1,
     fontSize: wp('2.8%'),
     fontFamily: Fonts.regular,
   },
+
+  // ── Empty state ──
   emptyCard: {
     borderRadius: wp('5%'),
     padding: hp('4%'),
-    marginHorizontal: wp('5%'),
     alignItems: 'center',
     borderWidth: 1,
     borderStyle: 'dashed',
@@ -2024,6 +1970,7 @@ const styles = StyleSheet.create({
     fontSize: wp('4.5%'),
     fontFamily: Fonts.bold,
     marginBottom: hp('0.5%'),
+    textAlign: 'center',
   },
   emptySubtitle: {
     fontSize: wp('3.2%'),
@@ -2037,51 +1984,90 @@ const styles = StyleSheet.create({
     paddingHorizontal: wp('8%'),
     paddingVertical: hp('1.6%'),
     borderRadius: wp('5%'),
+    elevation: 4,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
   },
-  punchInBtnText: {
-    fontSize: wp('3.8%'),
-    fontFamily: Fonts.medium,
-  },
+  punchInBtnText: { fontSize: wp('3.8%'), fontFamily: Fonts.medium },
+
+  // ── Loading card ──
   loadingCard: {
     borderRadius: wp('5%'),
     padding: hp('3%'),
-    marginHorizontal: wp('5%'),
     alignItems: 'center',
     gap: hp('1%'),
     borderWidth: 1,
   },
-  loadingText: {
-    fontSize: wp('3.2%'),
-    fontFamily: Fonts.regular,
-  },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+  loadingText: { fontSize: wp('3.2%'), fontFamily: Fonts.regular },
+
+  // ── Profile modal ──
+  modalOverlay: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 9999,
-    elevation: 9999,
-    flex: 1,
+    paddingHorizontal: wp('6%'),
   },
-  overlayCard: {
-    borderRadius: wp('4%'),
-    padding: wp('8%'),
-    alignItems: 'center',
-    gap: hp('1.5%'),
+  profileModalCard: {
+    width: '100%',
+    borderRadius: wp('5%'),
+    padding: wp('6%'),
     borderWidth: 1,
   },
-  overlayText: {
-    fontSize: wp('3.5%'),
-    fontFamily: Fonts.medium,
+  profileHeader: {
+    alignItems: 'center',
+    marginBottom: hp('2%'),
+    paddingBottom: hp('2%'),
   },
+  profileAvatar: {
+    width: wp('18%'),
+    height: wp('18%'),
+    borderRadius: wp('9%'),
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: hp('1%'),
+  },
+  profileAvatarText: { fontSize: wp('7%'), fontFamily: Fonts.bold },
+  profileName: {
+    fontSize: wp('5%'),
+    fontFamily: Fonts.bold,
+    textAlign: 'center',
+  },
+  profileDesignation: {
+    fontSize: wp('3.5%'),
+    fontFamily: Fonts.regular,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  profileInfoSection: { marginTop: hp('1%') },
+  profileRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: hp('1.2%'),
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: wp('4%'),
+  },
+  profileLabel: {
+    fontSize: wp('3.2%'),
+    fontFamily: Fonts.medium,
+    flexShrink: 0, // label never shrinks
+    maxWidth: '45%',
+  },
+  profileValue: {
+    fontSize: wp('3.2%'),
+    fontFamily: Fonts.regular,
+    flex: 1, // value takes remaining space
+    textAlign: 'right',
+  },
+  profileCloseBtn: {
+    marginTop: hp('2.5%'),
+    paddingVertical: hp('1.4%'),
+    borderRadius: wp('3%'),
+    alignItems: 'center',
+  },
+  profileCloseBtnText: { fontSize: wp('3.5%'), fontFamily: Fonts.medium },
 });
 
 export default HomeScreen;

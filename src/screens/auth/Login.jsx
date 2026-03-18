@@ -35,8 +35,8 @@ const LoginScreen = ({ navigation }) => {
   const { sendOtpLoading, sendOtpSuccess } = useSelector(state => state.auth);
   const { alert } = useSelector(state => state.ui);
 
-  const [email, setEmail] = useState('');
-  const [emailError, setEmailError] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
+  const [employeeIdError, setEmployeeIdError] = useState('');
 
   useEffect(() => {
     console.log('🔐 LoginScreen mounted');
@@ -44,38 +44,45 @@ const LoginScreen = ({ navigation }) => {
   }, []);
 
   useEffect(() => {
-    if (sendOtpSuccess && email) {
+    if (sendOtpSuccess && employeeId) {
       console.log('📧 OTP sent successfully, navigating to verification');
       navigation.navigate('Verify_Otp', {
-        email: email.trim().toLowerCase(),
+        employeeId: employeeId.trim().toUpperCase(), // Send uppercase to verification screen
       });
     }
-  }, [sendOtpSuccess, email, navigation]);
+  }, [sendOtpSuccess, employeeId, navigation]);
 
-  const validateEmail = email => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  // Filter function to only allow alphanumeric characters
+  const filterAlphanumeric = (text) => {
+    // Remove any character that is not a letter (A-Z, a-z) or number (0-9)
+    return text.replace(/[^a-zA-Z0-9]/g, '');
+  };
+
+  const validateEmployeeId = (id) => {
+    // Allow alphanumeric, at least 1 character
+    return id && id.trim().length > 0;
   };
 
   const handleSendOtp = async () => {
     Keyboard.dismiss();
-    setEmailError('');
+    setEmployeeIdError('');
 
-    if (!validateEmail(email)) {
-      setEmailError(t.alerts.invalidEmail);
+    if (!validateEmployeeId(employeeId)) {
+      setEmployeeIdError('Please enter a valid Employee ID');
       return;
     }
 
-    console.log('📤 Sending OTP for email:', email);
-    await dispatch(sendOtp(email));
+    console.log('📤 Sending OTP for employee ID:', employeeId);
+    // Convert to uppercase for API payload
+    const payloadEmployeeId = employeeId.trim().toUpperCase();
+    await dispatch(sendOtp(payloadEmployeeId));
   };
 
   return (
-    // Outermost View is the true full-screen container — NOT KeyboardAvoidingView.
-    // This ensures the decorative shadows are anchored to the screen, not the keyboard layout.
     <View style={[styles.rootContainer, { backgroundColor: C.background }]}>
       <StatusBar barStyle={C.statusBar} backgroundColor={C.background} />
 
-      {/* Background decorative blobs — rendered outside KAV so they never move */}
+      {/* Background decorative blobs */}
       <View style={[styles.topShadow, { backgroundColor: C.topShadow }]} />
       <View
         style={[styles.bottomShadow, { backgroundColor: C.bottomShadow }]}
@@ -88,7 +95,6 @@ const LoginScreen = ({ navigation }) => {
         onDismiss={() => dispatch(hideAlert())}
       />
 
-      {/* KeyboardAvoidingView only wraps the interactive content */}
       <KeyboardAvoidingView
         style={styles.kavContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -105,21 +111,23 @@ const LoginScreen = ({ navigation }) => {
 
           <View style={styles.formContainer}>
             <FloatingLabelInput
-              label={t.login.emailLabel}
-              value={email}
+              label="Employee ID"
+              value={employeeId}
               onChangeText={text => {
-                setEmail(text);
-                setEmailError('');
+                // Filter out special characters first, then convert to uppercase
+                const filteredText = filterAlphanumeric(text);
+                setEmployeeId(filteredText.toUpperCase());
+                setEmployeeIdError('');
               }}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              maxLength={50}
-              placeholder={t.login.emailPlaceholder}
+              keyboardType="default"
+              autoCapitalize="characters"
+              maxLength={20}
+              placeholder="Enter your Employee ID"
               placeholderTextColor={C.textSecondary}
             />
-            {emailError ? (
+            {employeeIdError ? (
               <Text style={[styles.errorText, { color: C.error }]}>
-                {emailError}
+                {employeeIdError}
               </Text>
             ) : null}
 
@@ -127,7 +135,7 @@ const LoginScreen = ({ navigation }) => {
               title={t.login.sendOtpButton}
               onPress={handleSendOtp}
               loading={sendOtpLoading}
-              disabled={!validateEmail(email) || sendOtpLoading}
+              disabled={!validateEmployeeId(employeeId) || sendOtpLoading}
             />
           </View>
         </ScrollView>
@@ -143,7 +151,6 @@ const LoginScreen = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  // True root: fills the screen, holds the fixed decorative layers
   rootContainer: {
     flex: 1,
   },
@@ -156,14 +163,12 @@ const styles = StyleSheet.create({
     borderRadius: wp('7%'),
     justifyContent: 'center',
     alignItems: 'center',
-
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 6,
     elevation: 8,
   },
-  // Top-right decorative blob
   topShadow: {
     position: 'absolute',
     top: -hp('1%'),
@@ -173,7 +178,6 @@ const styles = StyleSheet.create({
     height: hp('35%'),
     borderBottomLeftRadius: wp('25%'),
   },
-  // Bottom-left decorative blob
   bottomShadow: {
     position: 'absolute',
     bottom: -hp('10%'),
@@ -183,7 +187,6 @@ const styles = StyleSheet.create({
     height: hp('35%'),
     borderTopRightRadius: wp('50%'),
   },
-  // KAV fills remaining space without affecting sibling positioned elements
   kavContainer: {
     flex: 1,
   },

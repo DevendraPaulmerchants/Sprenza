@@ -25,6 +25,7 @@ import {
   XCircle,
   Map,
   AlertTriangle,
+  Briefcase,
 } from 'lucide-react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { useTheme } from '../../../context/ThemeContext';
@@ -37,6 +38,7 @@ import {
 } from '../../../store/actions/attendanceActions';
 import { setAlert } from '../../../store/actions/authActions';
 import GeofenceMapModal from '../../../components/modals/GeofenceMapModal';
+import RemoteLocationModal from '../../../components/modals/RemoteLocationModal';
 
 const DailyPunch = ({ navigation }) => {
   const dispatch = useDispatch();
@@ -47,6 +49,11 @@ const DailyPunch = ({ navigation }) => {
   const { punchInLoading, isCheckedIn, location, punchError, history } =
     useSelector(state => state.attendance);
 
+  // ── Profile — for sales team detection ────────────
+  const { profile } = useSelector(state => state.employeeProfile);
+  const department = profile?.[0]?.department || '';
+  const isSalesTeam = department.toLowerCase().includes('sales');
+
   const [uiState, setUiState] = useState('idle');
   const [mapVisible, setMapVisible] = useState(false);
   const [isInsideGeofence, setIsInsideGeofence] = useState(null);
@@ -56,8 +63,13 @@ const DailyPunch = ({ navigation }) => {
     upload: 'pending',
   });
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [geofenceStatus, setGeofenceStatus] = useState(null);
   const [distance, setDistance] = useState(null);
+  const [userCoords, setUserCoords] = useState(null);
+  const [userAddress, setUserAddress] = useState(null);
+
+  // ── Remote location modal (sales team only) ────────
+  const [remoteModalVisible, setRemoteModalVisible] = useState(false);
+  const [pendingRemotePunch, setPendingRemotePunch] = useState(false);
 
   // Check if user has an active session (punched in but not out)
   const today = new Date().toISOString().split('T')[0];
@@ -73,7 +85,6 @@ const DailyPunch = ({ navigation }) => {
   const dotOpacityAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // Update time every minute
     const timeInterval = setInterval(() => {
       setCurrentTime(new Date());
     }, 60000);
@@ -272,13 +283,14 @@ const DailyPunch = ({ navigation }) => {
   // ── Punch circle derived values ────────────────
   const outsideGeofence = isInsideGeofence === false;
 
-  // Disable if outside geofence, loading, or already has active session
-  const isPunchDisabled = punchInLoading || outsideGeofence || hasActiveSession;
+  const isPunchDisabled = isSalesTeam
+    ? punchInLoading || hasActiveSession
+    : punchInLoading || outsideGeofence || hasActiveSession;
 
-  // Determine accent color based on state
   const getAccentColor = () => {
-    if (outsideGeofence) return C.error;
     if (hasActiveSession) return C.warning;
+    if (isSalesTeam && outsideGeofence) return C.warning;
+    if (!isSalesTeam && outsideGeofence) return C.error;
     return C.primary;
   };
 
@@ -287,7 +299,10 @@ const DailyPunch = ({ navigation }) => {
   const getCircleIcon = () => {
     if (hasActiveSession)
       return <CheckCircle size={wp('14%')} color={C.textDark} />;
-    if (outsideGeofence) return <XCircle size={wp('14%')} color={C.textDark} />;
+    if (!isSalesTeam && outsideGeofence)
+      return <XCircle size={wp('14%')} color={C.textDark} />;
+    if (isSalesTeam && outsideGeofence)
+      return <Briefcase size={wp('14%')} color={C.textDark} />;
     if (uiState === 'loading')
       return (
         <Animated.View style={{ transform: [{ rotate: rotation }] }}>
@@ -304,8 +319,10 @@ const DailyPunch = ({ navigation }) => {
   const getCircleLabel = () => {
     if (hasActiveSession)
       return t.attendance.alreadyPunchedIn || 'ALREADY PUNCHED IN';
-    if (outsideGeofence)
+    if (!isSalesTeam && outsideGeofence)
       return t.attendance.outsideGeofenceStatus || 'Out of Range';
+    if (isSalesTeam && outsideGeofence)
+      return t?.remoteLocation?.remotePunchIn || 'REMOTE PUNCH IN';
     if (uiState === 'loading')
       return t.attendance.processing || 'PROCESSING...';
     if (uiState === 'success') return t.attendance.success || 'SUCCESS!';
@@ -318,13 +335,18 @@ const DailyPunch = ({ navigation }) => {
       return (
         t.attendance.alreadyHaveActiveSession || 'You have an active session'
       );
-    if (outsideGeofence) return t.attendance.openMap || 'Open map to verify';
+    if (!isSalesTeam && outsideGeofence)
+      return t.attendance.openMap || 'Open map to verify';
+    if (isSalesTeam && outsideGeofence)
+      return t?.remoteLocation?.tapToConfirm || 'Tap to confirm location';
     if (uiState === 'error') return t.attendance.tapRetry || 'Tap to retry';
     return '';
   };
 
   const getSyncLabel = () => {
     if (hasActiveSession) return t.attendance.sessionActive || 'ACTIVE SESSION';
+    if (isSalesTeam && isInsideGeofence === false)
+      return t?.remoteLocation?.remoteLabel || 'REMOTE LOCATION';
     if (isInsideGeofence === false)
       return t.attendance.outsideGeofenceStatus || 'OUTSIDE GEOFENCE';
     if (isInsideGeofence === true)
@@ -338,6 +360,12 @@ const DailyPunch = ({ navigation }) => {
     if (hasActiveSession) {
       return t.attendance.cannotPunchTwice || 'You are already punched in';
     }
+    if (isSalesTeam && isInsideGeofence === false) {
+      return (
+        t?.remoteLocation?.salesOutsideMsg ||
+        'Remote punch-in available for sales team'
+      );
+    }
     if (isInsideGeofence === true) {
       return t.geofence.youAreInside || 'You are inside the geofence';
     }
@@ -347,7 +375,10 @@ const DailyPunch = ({ navigation }) => {
     return t.geofence.checking || 'Checking your location...';
   };
 
+  // Sync dot / text color
   const syncDotColor = hasActiveSession
+    ? C.warning
+    : isSalesTeam && isInsideGeofence === false
     ? C.warning
     : isInsideGeofence === false
     ? C.error
@@ -357,11 +388,44 @@ const DailyPunch = ({ navigation }) => {
 
   const syncTextColor = hasActiveSession
     ? C.warning
+    : isSalesTeam && isInsideGeofence === false
+    ? C.warning
     : isInsideGeofence === false
     ? C.error
     : isInsideGeofence === true
     ? C.success
     : C.textSecondary;
+
+  // ── Geofence strip color ────────────────────────
+  const getGeofenceStripColors = () => {
+    if (hasActiveSession) return { bg: C.warning + '18', border: C.warning + '50', text: C.warning };
+    if (isSalesTeam && isInsideGeofence === false)
+      return { bg: C.warning + '18', border: C.warning + '50', text: C.warning };
+    if (isInsideGeofence) return { bg: C.success + '18', border: C.success + '50', text: C.success };
+    return { bg: C.error + '18', border: C.error + '50', text: C.error };
+  };
+
+  const geofenceStripColors = getGeofenceStripColors();
+
+  const getGeofenceStripIcon = () => {
+    const size = wp('3.5%');
+    if (hasActiveSession) return <CheckCircle2 size={size} color={C.warning} />;
+    if (isSalesTeam && isInsideGeofence === false)
+      return <Briefcase size={size} color={C.warning} />;
+    if (isInsideGeofence)
+      return <CheckCircle2 size={size} color={C.success} />;
+    return <AlertTriangle size={size} color={C.error} />;
+  };
+
+  // ── Execute the actual punch ───────────────────
+  const executePunch = async () => {
+    const result = await dispatch(punchIn());
+    if (result?.success) {
+      dispatch(setAlert(t.alerts.punchInSuccess, 'success'));
+      await dispatch(getAttendanceHistory());
+      navigation.replace('Home');
+    }
+  };
 
   // ── Punch handler ──────────────────────────────
   const handlePunch = async () => {
@@ -375,25 +439,37 @@ const DailyPunch = ({ navigation }) => {
       return;
     }
 
-    if (outsideGeofence) {
+    if (punchInLoading) return;
+
+    // Non-sales: block if outside geofence
+    if (!isSalesTeam && outsideGeofence) {
       dispatch(setAlert(t.alerts.outsideGeofence, 'error'));
       return;
     }
 
-    if (punchInLoading) return;
-
-    const result = await dispatch(punchIn());
-    if (result?.success) {
-      dispatch(setAlert(t.alerts.punchInSuccess, 'success'));
-      await dispatch(getAttendanceHistory());
-      // Navigate back to home after successful punch
-      navigation.replace('Home');
+    // Sales team + outside geofence → show remote location modal
+    if (isSalesTeam && outsideGeofence) {
+      setRemoteModalVisible(true);
+      return;
     }
+
+    // Inside geofence OR sales team inside — proceed directly
+    await executePunch();
   };
 
-  const handleGeofenceStatusChange = (status, distanceValue) => {
+  // ── Remote modal confirm ───────────────────────
+  const handleRemoteConfirm = async () => {
+    setPendingRemotePunch(true);
+    setRemoteModalVisible(false);
+    await executePunch();
+    setPendingRemotePunch(false);
+  };
+
+  const handleGeofenceStatusChange = (status, distanceValue, coords, address) => {
     setIsInsideGeofence(status);
     setDistance(distanceValue);
+    if (coords) setUserCoords(coords);
+    if (address) setUserAddress(address);
   };
 
   return (
@@ -417,6 +493,21 @@ const DailyPunch = ({ navigation }) => {
           },
         ]}
       >
+        {/* Sales team badge */}
+        {isSalesTeam && (
+          <View
+            style={[
+              styles.salesBadge,
+              { backgroundColor: C.warning + '15', borderColor: C.warning + '40' },
+            ]}
+          >
+            <Briefcase size={wp('3.5%')} color={C.warning} />
+            <Text style={[styles.salesBadgeText, { color: C.warning }]}>
+              {t?.remoteLocation?.salesTeamBadge || 'Sales Team — Remote Punch-In Enabled'}
+            </Text>
+          </View>
+        )}
+
         {/* Status Card */}
         <View
           style={[
@@ -471,36 +562,16 @@ const DailyPunch = ({ navigation }) => {
             style={[
               styles.geofenceStrip,
               {
-                backgroundColor: hasActiveSession
-                  ? C.warning + '18'
-                  : isInsideGeofence
-                  ? C.success + '18'
-                  : C.error + '18',
-                borderColor: hasActiveSession
-                  ? C.warning + '50'
-                  : isInsideGeofence
-                  ? C.success + '50'
-                  : C.error + '50',
+                backgroundColor: geofenceStripColors.bg,
+                borderColor: geofenceStripColors.border,
               },
             ]}
           >
-            {hasActiveSession ? (
-              <CheckCircle2 size={wp('3.5%')} color={C.warning} />
-            ) : isInsideGeofence ? (
-              <CheckCircle2 size={wp('3.5%')} color={C.success} />
-            ) : (
-              <AlertTriangle size={wp('3.5%')} color={C.error} />
-            )}
+            {getGeofenceStripIcon()}
             <Text
               style={[
                 styles.geofenceStripText,
-                {
-                  color: hasActiveSession
-                    ? C.warning
-                    : isInsideGeofence
-                    ? C.success
-                    : C.error,
-                },
+                { color: geofenceStripColors.text },
               ]}
             >
               {getGeofenceMessage()}
@@ -514,18 +585,20 @@ const DailyPunch = ({ navigation }) => {
 
         {/* Punch Circle */}
         <View style={styles.punchSection}>
-          {!hasActiveSession && !outsideGeofence && uiState !== 'error' && (
-            <Animated.View
-              style={[
-                styles.waveRing,
-                {
-                  transform: [{ scale: waveScale }],
-                  opacity: waveOpacity,
-                  borderColor: accentColor,
-                },
-              ]}
-            />
-          )}
+          {!hasActiveSession &&
+            !(isSalesTeam ? false : outsideGeofence) &&
+            uiState !== 'error' && (
+              <Animated.View
+                style={[
+                  styles.waveRing,
+                  {
+                    transform: [{ scale: waveScale }],
+                    opacity: waveOpacity,
+                    borderColor: accentColor,
+                  },
+                ]}
+              />
+            )}
 
           <TouchableOpacity
             onPress={handlePunch}
@@ -557,7 +630,12 @@ const DailyPunch = ({ navigation }) => {
               styles.syncPill,
               { backgroundColor: C.surface, borderColor: C.border },
               (isInsideGeofence === false || hasActiveSession) && {
-                borderColor: (hasActiveSession ? C.warning : C.error) + '70',
+                borderColor:
+                  (isSalesTeam && isInsideGeofence === false
+                    ? C.warning
+                    : hasActiveSession
+                    ? C.warning
+                    : C.error) + '70',
               },
             ]}
           >
@@ -618,8 +696,9 @@ const DailyPunch = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Distance Info (if outside) */}
-        {!hasActiveSession &&
+        {/* Distance Info (non-sales outside) */}
+        {!isSalesTeam &&
+          !hasActiveSession &&
           isInsideGeofence === false &&
           distance !== null && (
             <View
@@ -637,6 +716,31 @@ const DailyPunch = ({ navigation }) => {
               </Text>
             </View>
           )}
+
+        {/* Distance Info (sales outside — informational only) */}
+        {isSalesTeam &&
+          !hasActiveSession &&
+          isInsideGeofence === false &&
+          distance !== null && (
+            <View
+              style={[
+                styles.distanceInfo,
+                {
+                  backgroundColor: C.surface,
+                  borderColor: C.warning + '40',
+                },
+              ]}
+            >
+              <Text style={[styles.distanceText, { color: C.textSecondary }]}>
+                {t.geofence.distanceToOffice || 'Distance to office'}:{' '}
+                {Math.round(distance)} {t.geofence.meters || 'm'}
+              </Text>
+              <Text style={[styles.distanceHint, { color: C.warning }]}>
+                {t?.remoteLocation?.salesDistanceHint ||
+                  'Tap the punch button to confirm remote punch-in'}
+              </Text>
+            </View>
+          )}
       </Animated.View>
 
       {/* Geofence Map Modal */}
@@ -644,6 +748,21 @@ const DailyPunch = ({ navigation }) => {
         visible={mapVisible}
         onClose={() => setMapVisible(false)}
         onStatusChange={handleGeofenceStatusChange}
+        isSalesTeam={isSalesTeam}
+      />
+
+      {/* Remote Location Confirmation Modal (sales team only) */}
+      <RemoteLocationModal
+        visible={remoteModalVisible}
+        onClose={() => setRemoteModalVisible(false)}
+        onConfirm={handleRemoteConfirm}
+        loading={pendingRemotePunch || punchInLoading}
+        locationData={{
+          latitude: userCoords?.latitude ?? null,
+          longitude: userCoords?.longitude ?? null,
+          address: userAddress,
+          distance: distance,
+        }}
       />
     </MainLayout>
   );
@@ -655,6 +774,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: wp('5%'),
     paddingTop: hp('2.5%'),
     paddingBottom: hp('3%'),
+  },
+
+  // Sales badge
+  salesBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp('2%'),
+    paddingHorizontal: wp('3.5%'),
+    paddingVertical: hp('0.8%'),
+    borderRadius: wp('2.5%'),
+    borderWidth: 1,
+    alignSelf: 'flex-start',
+    marginBottom: hp('1.5%'),
+  },
+  salesBadgeText: {
+    fontSize: wp('2.8%'),
+    fontFamily: Fonts.medium,
   },
 
   // Status Card
@@ -763,12 +899,16 @@ const styles = StyleSheet.create({
     fontSize: wp('3.5%'),
     fontFamily: Fonts.medium,
     letterSpacing: 0.3,
+    textAlign: 'center',
+    paddingHorizontal: wp('2%'),
   },
   punchSubLabel: {
     fontSize: wp('2.5%'),
     fontFamily: Fonts.regular,
     marginTop: 3,
     opacity: 0.8,
+    textAlign: 'center',
+    paddingHorizontal: wp('2%'),
   },
   syncPill: {
     flexDirection: 'row',
@@ -845,6 +985,7 @@ const styles = StyleSheet.create({
     fontSize: wp('2.8%'),
     fontFamily: Fonts.medium,
     marginTop: hp('0.5%'),
+    textAlign: 'center',
   },
 });
 

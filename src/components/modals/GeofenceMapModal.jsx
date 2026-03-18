@@ -7,8 +7,14 @@
  *   <GeofenceMapModal
  *     visible={mapVisible}
  *     onClose={() => setMapVisible(false)}
- *     onStatusChange={(isInside) => setInsideGeofence(isInside)}
+ *     onStatusChange={(isInside, distance, coords, address) => { ... }}
  *   />
+ *
+ * onStatusChange now passes 4 arguments:
+ *   isInside  {boolean}
+ *   distance  {number}   — metres from office
+ *   coords    {{ latitude, longitude }}
+ *   address   {string}   — reverse-geocoded address (may be null)
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -36,10 +42,12 @@ import {
   Navigation,
   RefreshCw,
   Wifi,
+  Briefcase,
 } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { Fonts } from '../../utils/GlobalText';
+import { getAddressFromCoords } from '../../utils/utils';
 
 // ─────────────────────────────────────────────────
 // 🔧 CONFIGURE YOUR OFFICE HERE
@@ -65,7 +73,7 @@ const getDistanceMeters = (lat1, lon1, lat2, lon2) => {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-const getBearing = (userCoords) => {
+const getBearing = userCoords => {
   if (!userCoords) return null;
   const dLon = OFFICE_CONFIG.longitude - userCoords.longitude;
   const y =
@@ -82,11 +90,16 @@ const getBearing = (userCoords) => {
   return dirs[Math.round(((bearing + 360) % 360) / 45) % 8];
 };
 
-const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
+const GeofenceMapModal = ({
+  visible,
+  onClose,
+  onStatusChange,
+  isSalesTeam = false,
+}) => {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const C = theme.colors;
-  
+
   const slideAnim = useRef(new Animated.Value(hp('100%'))).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -99,16 +112,17 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
   const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState(null);
   const [accuracy, setAccuracy] = useState(null);
+  const [resolvedAddress, setResolvedAddress] = useState(null);
 
   // ── Slide in/out ─────────────────────────────────
   useEffect(() => {
     if (visible) {
-      // Reset state
       setIsInsideGeofence(null);
       setDistanceMeters(null);
       setLocationError(null);
       setUserCoords(null);
       setAccuracy(null);
+      setResolvedAddress(null);
       progressAnim.setValue(0);
       fadeAnim.setValue(0);
 
@@ -133,8 +147,16 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
     if (isLocating) {
       pulseLoop.current = Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, { toValue: 1.18, duration: 750, useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 1, duration: 750, useNativeDriver: true }),
+          Animated.timing(pulseAnim, {
+            toValue: 1.18,
+            duration: 750,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 750,
+            useNativeDriver: true,
+          }),
         ]),
       );
       pulseLoop.current.start();
@@ -153,8 +175,16 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
   useEffect(() => {
     if (isInsideGeofence !== null) {
       Animated.parallel([
-        Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
-        Animated.timing(progressAnim, { toValue: 1, duration: 300, useNativeDriver: false }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(progressAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: false,
+        }),
       ]).start();
     }
   }, [isInsideGeofence]);
@@ -165,12 +195,14 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
     setLocationError(null);
     setIsInsideGeofence(null);
     setDistanceMeters(null);
+    setResolvedAddress(null);
     progressAnim.setValue(0);
     fadeAnim.setValue(0);
 
     Geolocation.getCurrentPosition(
-      position => {
+      async position => {
         const { latitude, longitude, accuracy: acc } = position.coords;
+        console.log("position:",position)
         const coords = { latitude, longitude };
         setUserCoords(coords);
         setAccuracy(Math.round(acc));
@@ -185,15 +217,29 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
         const inside = dist <= OFFICE_CONFIG.radiusMeters;
         setDistanceMeters(Math.round(dist));
         setIsInsideGeofence(inside);
-        onStatusChange?.(inside);
+
+        // Try to resolve address for remote modal
+        let address = null;
+        try {
+          address = await getAddressFromCoords(latitude, longitude);
+          console.log("address: ",address)
+          setResolvedAddress(address);
+        } catch (_) {
+          // address stays null — coords will still be shown
+        }
+
+        // Pass all 4 values back to parent
+        onStatusChange?.(inside, Math.round(dist), coords, address);
       },
       error => {
         setIsLocating(false);
         setLocationError(
           error.code === 1
-            ? t.attendance.locationPermissionDenied || 'Location permission denied. Please enable in Settings.'
+            ? t.attendance.locationPermissionDenied ||
+                'Location permission denied. Please enable in Settings.'
             : error.code === 2
-            ? t.attendance.gpsUnavailable || 'GPS signal unavailable. Please check device settings.'
+            ? t.attendance.gpsUnavailable ||
+              'GPS signal unavailable. Please check device settings.'
             : t.attendance.locationError,
         );
       },
@@ -217,7 +263,9 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
     isInsideGeofence === true
       ? C.success
       : isInsideGeofence === false
-      ? C.error
+      ? isSalesTeam
+        ? C.warning
+        : C.error
       : C.primary;
 
   return (
@@ -229,18 +277,27 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
       onRequestClose={onClose}
     >
       <View style={[styles.overlay, { backgroundColor: C.overlayBg }]}>
-        <Animated.View style={[styles.sheet, { 
-          backgroundColor: C.background,
-          transform: [{ translateY: slideAnim }],
-        }]}>
-
+        <Animated.View
+          style={[
+            styles.sheet,
+            {
+              backgroundColor: C.background,
+              transform: [{ translateY: slideAnim }],
+            },
+          ]}
+        >
           {/* Handle bar */}
           <View style={[styles.handle, { backgroundColor: C.border }]} />
 
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: C.border }]}>
             <View style={styles.headerLeft}>
-              <View style={[styles.headerIcon, { backgroundColor: C.primary + '20' }]}>
+              <View
+                style={[
+                  styles.headerIcon,
+                  { backgroundColor: C.primary + '20' },
+                ]}
+              >
                 <Building2 size={wp('4.5%')} color={C.primary} />
               </View>
               <View>
@@ -248,14 +305,21 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
                   {t.geofence.headOffice}
                 </Text>
                 <Text style={[styles.headerSub, { color: C.textSecondary }]}>
-                  {t.geofence.radiusLabel} · {OFFICE_CONFIG.radiusMeters}m {t.geofence.radius}
+                  {t.geofence.radiusLabel} · {OFFICE_CONFIG.radiusMeters}m{' '}
+                  {t.geofence.radius}
                 </Text>
               </View>
             </View>
-            <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { 
-              backgroundColor: C.surface,
-              borderColor: C.border,
-            }]}>
+            <TouchableOpacity
+              onPress={onClose}
+              style={[
+                styles.closeBtn,
+                {
+                  backgroundColor: C.surface,
+                  borderColor: C.border,
+                },
+              ]}
+            >
               <X size={wp('4%')} color={C.textSecondary} />
             </TouchableOpacity>
           </View>
@@ -263,32 +327,44 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
           {/* Progress bar */}
           <View style={[styles.progressTrack, { backgroundColor: C.border }]}>
             <Animated.View
-              style={[styles.progressFill, { width: progressWidth, backgroundColor: statusColor }]}
+              style={[
+                styles.progressFill,
+                { width: progressWidth, backgroundColor: statusColor },
+              ]}
             />
           </View>
 
           {/* Body */}
           <View style={styles.body}>
-
             {/* ── Loading ── */}
             {isLocating && (
               <View style={styles.loadingWrap}>
                 <Animated.View
-                  style={[styles.pulseRing, { 
-                    backgroundColor: C.primary + '15',
-                    transform: [{ scale: pulseAnim }],
-                  }]}
+                  style={[
+                    styles.pulseRing,
+                    {
+                      backgroundColor: C.primary + '15',
+                      transform: [{ scale: pulseAnim }],
+                    },
+                  ]}
                 />
-                <View style={[styles.locatingIconWrap, { 
-                  backgroundColor: C.primary + '20',
-                  borderColor: C.primary + '40',
-                }]}>
+                <View
+                  style={[
+                    styles.locatingIconWrap,
+                    {
+                      backgroundColor: C.primary + '20',
+                      borderColor: C.primary + '40',
+                    },
+                  ]}
+                >
                   <Navigation size={wp('7%')} color={C.primary} />
                 </View>
                 <Text style={[styles.loadingTitle, { color: C.textPrimary }]}>
                   {t.attendance.getLocation}
                 </Text>
-                <Text style={[styles.loadingSubtitle, { color: C.textSecondary }]}>
+                <Text
+                  style={[styles.loadingSubtitle, { color: C.textSecondary }]}
+                >
                   {t.attendance.usingGps}
                 </Text>
                 <ActivityIndicator
@@ -302,7 +378,12 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
             {/* ── Error ── */}
             {!isLocating && locationError && (
               <View style={styles.errorWrap}>
-                <View style={[styles.errorIconWrap, { backgroundColor: C.error + '15' }]}>
+                <View
+                  style={[
+                    styles.errorIconWrap,
+                    { backgroundColor: C.error + '15' },
+                  ]}
+                >
                   <MapPin size={wp('7%')} color={C.error} />
                 </View>
                 <Text style={[styles.errorTitle, { color: C.textPrimary }]}>
@@ -311,7 +392,10 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
                 <Text style={[styles.errorMsg, { color: C.textSecondary }]}>
                   {locationError}
                 </Text>
-                <TouchableOpacity style={[styles.retryBtn, { backgroundColor: C.primary }]} onPress={fetchLocation}>
+                <TouchableOpacity
+                  style={[styles.retryBtn, { backgroundColor: C.primary }]}
+                  onPress={fetchLocation}
+                >
                   <RefreshCw size={wp('3.8%')} color={C.textDark} />
                   <Text style={[styles.retryText, { color: C.textDark }]}>
                     {t.attendance.tryAgain}
@@ -323,65 +407,88 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
             {/* ── Result ── */}
             {!isLocating && isInsideGeofence !== null && (
               <Animated.View style={[styles.resultWrap, { opacity: fadeAnim }]}>
-
                 {/* Status circle */}
                 <View
                   style={[
                     styles.statusCircle,
-                    { 
-                      borderColor: statusColor + '35', 
-                      backgroundColor: statusColor + '12' 
+                    {
+                      borderColor: statusColor + '35',
+                      backgroundColor: statusColor + '12',
                     },
                   ]}
                 >
                   {isInsideGeofence ? (
                     <CheckCircle2 size={wp('14%')} color={statusColor} />
+                  ) : isSalesTeam ? (
+                    <Briefcase size={wp('14%')} color={statusColor} />
                   ) : (
                     <AlertCircle size={wp('14%')} color={statusColor} />
                   )}
                 </View>
 
                 <Text style={[styles.statusTitle, { color: statusColor }]}>
-                  {isInsideGeofence 
-                    ? t.attendance.insideGeofenceStatus 
+                  {isInsideGeofence
+                    ? t.attendance.insideGeofenceStatus
+                    : isSalesTeam
+                    ? t?.remoteLocation?.remoteLocation || 'Remote Location'
                     : t.attendance.outsideGeofenceStatus}
                 </Text>
-                <Text style={[styles.statusSubtitle, { color: C.textSecondary }]}>
+                <Text
+                  style={[styles.statusSubtitle, { color: C.textSecondary }]}
+                >
                   {isInsideGeofence
                     ? t.attendance.insideMsg
+                    : isSalesTeam
+                    ? t?.remoteLocation?.salesMapSubtitle ||
+                      'You can punch in from this remote location. Your location will be recorded.'
                     : t.attendance.outsideMsg}
                 </Text>
 
                 {/* Stats row */}
-                <View style={[styles.statsRow, { 
-                  backgroundColor: C.surface,
-                  borderColor: C.border,
-                }]}>
+                <View
+                  style={[
+                    styles.statsRow,
+                    {
+                      backgroundColor: C.surface,
+                      borderColor: C.border,
+                    },
+                  ]}
+                >
                   <View style={styles.statCard}>
                     <Text style={[styles.statValue, { color: C.textPrimary }]}>
                       {distanceMeters >= 1000
                         ? `${(distanceMeters / 1000).toFixed(1)}km`
                         : `${distanceMeters}m`}
                     </Text>
-                    <Text style={[styles.statLabel, { color: C.textSecondary }]}>
+                    <Text
+                      style={[styles.statLabel, { color: C.textSecondary }]}
+                    >
                       {t.attendance.distance}
                     </Text>
                   </View>
-                  <View style={[styles.statDivider, { backgroundColor: C.border }]} />
+                  <View
+                    style={[styles.statDivider, { backgroundColor: C.border }]}
+                  />
                   <View style={styles.statCard}>
                     <Text style={[styles.statValue, { color: C.textPrimary }]}>
                       {OFFICE_CONFIG.radiusMeters}m
                     </Text>
-                    <Text style={[styles.statLabel, { color: C.textSecondary }]}>
+                    <Text
+                      style={[styles.statLabel, { color: C.textSecondary }]}
+                    >
                       {t.attendance.zoneRadius}
                     </Text>
                   </View>
-                  <View style={[styles.statDivider, { backgroundColor: C.border }]} />
+                  <View
+                    style={[styles.statDivider, { backgroundColor: C.border }]}
+                  />
                   <View style={styles.statCard}>
                     <Text style={[styles.statValue, { color: C.textPrimary }]}>
                       {getBearing(userCoords) || '—'}
                     </Text>
-                    <Text style={[styles.statLabel, { color: C.textSecondary }]}>
+                    <Text
+                      style={[styles.statLabel, { color: C.textSecondary }]}
+                    >
                       {t.attendance.direction}
                     </Text>
                   </View>
@@ -389,12 +496,19 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
 
                 {/* GPS accuracy */}
                 {accuracy !== null && (
-                  <View style={[styles.accuracyChip, { 
-                    backgroundColor: C.surface,
-                    borderColor: C.border,
-                  }]}>
+                  <View
+                    style={[
+                      styles.accuracyChip,
+                      {
+                        backgroundColor: C.surface,
+                        borderColor: C.border,
+                      },
+                    ]}
+                  >
                     <Wifi size={wp('3%')} color={C.textSecondary} />
-                    <Text style={[styles.accuracyText, { color: C.textSecondary }]}>
+                    <Text
+                      style={[styles.accuracyText, { color: C.textSecondary }]}
+                    >
                       {t.attendance.gpsAccuracy} ±{accuracy}m
                     </Text>
                   </View>
@@ -406,10 +520,16 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
           {/* Action buttons */}
           <View style={styles.actions}>
             {!isLocating && (
-              <TouchableOpacity style={[styles.refreshBtn, { 
-                backgroundColor: C.surface,
-                borderColor: C.border,
-              }]} onPress={fetchLocation}>
+              <TouchableOpacity
+                style={[
+                  styles.refreshBtn,
+                  {
+                    backgroundColor: C.surface,
+                    borderColor: C.border,
+                  },
+                ]}
+                onPress={fetchLocation}
+              >
                 <RefreshCw size={wp('4%')} color={C.textSecondary} />
                 <Text style={[styles.refreshText, { color: C.textSecondary }]}>
                   {t.attendance.refreshLocation}
@@ -421,7 +541,10 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
                 styles.doneBtn,
                 { backgroundColor: C.primary },
                 isInsideGeofence === true && { backgroundColor: C.success },
-                isInsideGeofence === false && { backgroundColor: C.surface },
+                isInsideGeofence === false &&
+                  !isSalesTeam && { backgroundColor: C.surface },
+                isInsideGeofence === false &&
+                  isSalesTeam && { backgroundColor: C.warning },
               ]}
               onPress={onClose}
             >
@@ -430,15 +553,18 @@ const GeofenceMapModal = ({ visible, onClose, onStatusChange }) => {
                   styles.doneBtnText,
                   { color: C.textDark },
                   isInsideGeofence === true && { color: '#fff' },
+                  isInsideGeofence === false &&
+                    isSalesTeam && { color: C.textDark },
                 ]}
               >
-                {isInsideGeofence === true 
-                  ? t.attendance.proceedToPunchIn 
+                {isInsideGeofence === true
+                  ? t.attendance.proceedToPunchIn
+                  : isInsideGeofence === false && isSalesTeam
+                  ? t?.remoteLocation?.proceedRemote || 'Proceed to Punch In'
                   : t.attendance.close}
               </Text>
             </TouchableOpacity>
           </View>
-
         </Animated.View>
       </View>
     </Modal>
@@ -464,8 +590,6 @@ const styles = StyleSheet.create({
     marginTop: hp('1.2%'),
     marginBottom: hp('0.8%'),
   },
-
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -503,8 +627,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
   },
-
-  // Progress
   progressTrack: {
     height: 2,
   },
@@ -512,8 +634,6 @@ const styles = StyleSheet.create({
     height: 2,
     borderRadius: 1,
   },
-
-  // Body
   body: {
     minHeight: hp('30%'),
     justifyContent: 'center',
@@ -521,8 +641,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: wp('6%'),
     paddingVertical: hp('3%'),
   },
-
-  // Loading
   loadingWrap: {
     alignItems: 'center',
     gap: hp('1%'),
@@ -553,8 +671,6 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.regular,
     textAlign: 'center',
   },
-
-  // Error
   errorWrap: {
     alignItems: 'center',
     gap: hp('1%'),
@@ -591,8 +707,6 @@ const styles = StyleSheet.create({
     fontSize: wp('3.5%'),
     fontFamily: Fonts.medium,
   },
-
-  // Result
   resultWrap: {
     alignItems: 'center',
     gap: hp('1.2%'),
@@ -618,8 +732,6 @@ const styles = StyleSheet.create({
     lineHeight: hp('2.4%'),
     paddingHorizontal: wp('4%'),
   },
-
-  // Stats
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -646,8 +758,6 @@ const styles = StyleSheet.create({
     width: 1,
     height: hp('4%'),
   },
-
-  // Accuracy chip
   accuracyChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -661,8 +771,6 @@ const styles = StyleSheet.create({
     fontSize: wp('2.8%'),
     fontFamily: Fonts.regular,
   },
-
-  // Actions
   actions: {
     paddingHorizontal: wp('5%'),
     gap: hp('1%'),

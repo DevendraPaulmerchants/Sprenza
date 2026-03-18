@@ -1,17 +1,11 @@
 // src/components/common/ActiveTimeDisplay.js
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import {
   widthPercentageToDP as wp,
   heightPercentageToDP as hp,
 } from 'react-native-responsive-screen';
-import {
-  Clock,
-  Coffee,
-  AlertCircle,
-  CheckCircle,
-  Clock as LateIcon,
-} from 'lucide-react-native';
+import { Clock, Coffee, AlertCircle, LogOut } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { Fonts } from '../../utils/GlobalText';
@@ -21,6 +15,9 @@ const ActiveTimeDisplay = ({
   punchInTime,
   isOnBreak,
   breakStartTime,
+  breakType,
+  onEndBreak,
+  breakLoading,
 
   // Status Banner Props
   isAbsent,
@@ -42,8 +39,8 @@ const ActiveTimeDisplay = ({
 
   const [elapsedTime, setElapsedTime] = useState('00:00:00');
   const [breakDuration, setBreakDuration] = useState('00:00');
+  const [isBreakInitialLoad, setIsBreakInitialLoad] = useState(true);
 
-  // Format time helper function
   const formatTime = time => {
     if (!time) return '--:-- --';
     const date = new Date(time);
@@ -54,7 +51,6 @@ const ActiveTimeDisplay = ({
     });
   };
 
-  // Format minutes helper
   const formatMinutes = minutes => {
     if (!minutes) return '0m';
     const hrs = Math.floor(minutes / 60);
@@ -62,14 +58,26 @@ const ActiveTimeDisplay = ({
     return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
   };
 
-  // Get status icon component
-  const StatusIcon = ({ size, color }) => {
-    if (isAbsent) return <AlertCircle size={size} color={color} />;
-    if (isUserLate || isHalfDay) return <LateIcon size={size} color={color} />;
-    if (isPunchedIn) return <CheckCircle size={size} color={color} />;
-    return <Clock size={size} color={color} />;
+  const getBreakLabel = type => {
+    const labels = {
+      LUNCH: t.breaks?.lunch || 'Lunch',
+      TEA: t.breaks?.tea || 'Tea',
+      COFFEE: t.breaks?.coffee || 'Coffee',
+      PERSONAL: t.breaks?.personal || 'Personal',
+      OTHER: t.breaks?.other || 'Other',
+    };
+    return labels[type] || t.breaks?.breakType || 'Break';
   };
 
+  // Initial load delay for break (same logic as original BreakStatusBar)
+  useEffect(() => {
+    if (!breakStartTime) return;
+    setIsBreakInitialLoad(true);
+    const timer = setTimeout(() => setIsBreakInitialLoad(false), 500);
+    return () => clearTimeout(timer);
+  }, [breakStartTime]);
+
+  // Main ticker — handles both active time and break duration
   useEffect(() => {
     if (!punchInTime) return;
 
@@ -77,7 +85,6 @@ const ActiveTimeDisplay = ({
       const now = new Date();
       const punchIn = new Date(punchInTime);
 
-      // Calculate total active time
       const totalDiffMs = now - punchIn;
       const totalHours = Math.floor(totalDiffMs / 3600000);
       const totalMins = Math.floor((totalDiffMs % 3600000) / 60000);
@@ -89,152 +96,272 @@ const ActiveTimeDisplay = ({
           .padStart(2, '0')}:${totalSecs.toString().padStart(2, '0')}`,
       );
 
-      // Calculate current break duration if on break
-      if (isOnBreak && breakStartTime) {
+      if (isOnBreak && breakStartTime && !isBreakInitialLoad) {
         const breakStart = new Date(breakStartTime);
         const breakDiffMs = now - breakStart;
-        const breakMins = Math.floor(breakDiffMs / 60000);
-        const breakSecs = Math.floor((breakDiffMs % 60000) / 1000);
-        setBreakDuration(
-          `${breakMins.toString().padStart(2, '0')}:${breakSecs
-            .toString()
-            .padStart(2, '0')}`,
-        );
+        const hours = Math.floor(breakDiffMs / 3600000);
+        const mins = Math.floor((breakDiffMs % 3600000) / 60000);
+        const secs = Math.floor((breakDiffMs % 60000) / 1000);
+
+        if (hours > 0) {
+          setBreakDuration(
+            `${hours.toString().padStart(2, '0')}:${mins
+              .toString()
+              .padStart(2, '0')}:${secs.toString().padStart(2, '0')}`,
+          );
+        } else {
+          setBreakDuration(
+            `${mins.toString().padStart(2, '0')}:${secs
+              .toString()
+              .padStart(2, '0')}`,
+          );
+        }
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [punchInTime, isOnBreak, breakStartTime]);
+  }, [punchInTime, isOnBreak, breakStartTime, isBreakInitialLoad]);
 
-  // Get border color based on status
   const getBorderColor = () => {
-    if (isAbsent) return C.error + '40';
-    if (isUserLate || isHalfDay) return C.warning + '40';
-    if (isPunchedIn) return C.success + '40';
-    if (hasAnySessionToday) return C.textSecondary + '40';
+    if (isAbsent) return C.error;
+    if (isOnBreak) return C.warning;
+    if (isUserLate || isHalfDay || isEarlyLeave) return C.warning;
+    if (isPunchedIn) return C.success;
     return C.border;
   };
 
+  const getDotColor = () => {
+    if (isAbsent) return C.error;
+    if (isOnBreak) return C.warning;
+    if (isUserLate || isHalfDay || isEarlyLeave) return C.warning;
+    if (isPunchedIn) return C.success;
+    return C.textSecondary;
+  };
+
+  const borderColor = getBorderColor();
+  const dotColor = getDotColor();
+
   return (
     <View style={styles.container}>
-      {/* SINGLE CARD - Status + Active Time + Break Sab Ek Mein */}
       <View
         style={[
-          styles.mainCard,
+          styles.card,
           {
-            borderColor: getBorderColor(),
             backgroundColor: C.surface,
-            borderWidth: 1,
+            borderColor: borderColor + '60',
           },
-        ]}
-      >
-        {/* Section 1: Status Bar */}
-        <View style={styles.statusSection}>
+        ]}>
+
+        {/* ── Status Row (always visible) ── */}
+        <View style={styles.statusRow}>
           <View style={styles.statusLeft}>
-            <StatusIcon
-              size={wp('4.5%')}
-              color={statusConfig?.color || C.textSecondary}
-            />
-            <Text
-              style={[
-                styles.statusText,
-                { color: statusConfig?.color || C.textSecondary },
-              ]}
-            >
+            <View style={[styles.dot, { backgroundColor: dotColor }]} />
+            <Text style={[styles.statusLabel, { color: C.textPrimary }]}>
               {statusConfig?.label || 'Unknown Status'}
             </Text>
           </View>
-
-          <View style={styles.statusRight}>
-            {isPunchedIn && (
-              <Text style={[styles.statusTimeText, { color: C.textSecondary }]}>
-                {t.attendance?.since || 'Since'}{' '}
-                {formatTime(firstPunchIn || todaysPunchIn)}
-              </Text>
-            )}
-          </View>
+          {(isPunchedIn || isOnBreak) && (
+            <Text style={[styles.sinceText, { color: C.textSecondary }]}>
+              {t.attendance?.since || 'Since'}{' '}
+              {formatTime(firstPunchIn || todaysPunchIn)}
+            </Text>
+          )}
         </View>
 
-        {/* Section 2: Last Punch Out (if applicable) */}
-        {hasAnySessionToday && !isPunchedIn && !isAbsent && (
-          <View style={styles.lastPunchSection}>
-            <Text style={[styles.lastPunchText, { color: C.textSecondary }]}>
-              {t.attendance?.lastPunchOut || 'Last punch out'}{' '}
-              {formatTime(lastSession?.punchOut)}
-            </Text>
-          </View>
-        )}
-
-        {/* Section 3: Status Tags */}
-        {(isUserLate || isHalfDay || isEarlyLeave) && (
-          <View style={styles.tagsSection}>
-            {isUserLate && isPunchedIn && (
-              <View style={[styles.tag, { backgroundColor: C.error + '20' }]}>
-                <Text style={[styles.tagText, { color: C.error }]}>
-                  {t.attendance?.lateBy || 'Late'} {formatMinutes(lateMinutes)}
-                </Text>
+        {/* ── Absent Block ── */}
+        {isAbsent && (
+          <>
+            <View style={[styles.divider, { backgroundColor: C.border }]} />
+            <View style={styles.absentBlock}>
+              <View
+                style={[
+                  styles.absentIconTile,
+                  { backgroundColor: C.error + '20' },
+                ]}>
+                <AlertCircle size={wp('5.5%')} color={C.error} />
               </View>
-            )}
-
-            {isHalfDay && isPunchedIn && (
-              <View style={[styles.tag, { backgroundColor: C.warning + '20' }]}>
-                <Text style={[styles.tagText, { color: C.warning }]}>
-                  {t.attendance?.halfDay || 'Half Day'}
-                </Text>
-              </View>
-            )}
-
-            {isEarlyLeave && (
-              <View style={[styles.tag, { backgroundColor: C.warning + '20' }]}>
-                <Text style={[styles.tagText, { color: C.warning }]}>
-                  {t.attendance?.earlyLeave || 'Early'} (
-                  {formatMinutes(earlyLeaveMinutes)})
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Section 4: Active Time Display */}
-        {isPunchedIn && (
-          <View style={styles.activeTimeSection}>
-            <Clock size={wp('6%')} color={C.primary} />
-            <View style={styles.activeTimeInfo}>
-              <Text style={[styles.activeTimeLabel, { color: C.textSecondary }]}>
-                {t.breaks?.activeTime || 'ACTIVE TIME'}
+              <Text style={[styles.absentTitle, { color: C.error }]}>
+                {t.attendance?.markedAbsent || 'Marked Absent'}
               </Text>
-              <Text style={[styles.activeTimeValue, { color: C.primary }]}>
-                {elapsedTime}
+              <Text style={[styles.absentSub, { color: C.textSecondary }]}>
+                {t.attendance?.noAttendance || 'No attendance recorded today'}
               </Text>
             </View>
-             {/* Section 6: Punch In Time (footer) */}
-        {punchInTime && (
-          <View style={styles.footerSection}>
-            <Text style={[styles.footerText, { color: C.textTertiary }]}>
-              {t.attendance?.punchedInAt || 'Punched in at'}{' '}
-              {formatTime(punchInTime)}
-            </Text>
-          </View>
-        )}
-          </View>
+          </>
         )}
 
-        {/* Section 5: Break Time (if on break) */}
-        {/* {isOnBreak && (
-          <View style={styles.breakSection}>
-            <Coffee size={wp('5%')} color={C.warning} />
-            <View style={styles.breakInfo}>
-              <Text style={[styles.breakLabel, { color: C.textSecondary }]}>
-                {t.breaks?.currentBreak || 'CURRENT BREAK'}
-              </Text>
-              <Text style={[styles.breakValue, { color: C.warning }]}>
-                {breakDuration}
+        {/* ── Tags Row: Late + HalfDay + EarlyLeave ── */}
+        {!isAbsent && (isUserLate || isHalfDay || isEarlyLeave) && (
+          <>
+            <View style={[styles.divider, { backgroundColor: C.border }]} />
+            <View style={styles.tagsRow}>
+              {isUserLate && isPunchedIn && (
+                <View
+                  style={[styles.tag, { backgroundColor: C.error + '20' }]}>
+                  <Text style={[styles.tagText, { color: C.error }]}>
+                    {t.attendance?.lateBy || 'Late by'}{' '}
+                    {formatMinutes(lateMinutes)}
+                  </Text>
+                </View>
+              )}
+              {isHalfDay && isPunchedIn && (
+                <View
+                  style={[styles.tag, { backgroundColor: C.warning + '20' }]}>
+                  <Text style={[styles.tagText, { color: C.warning }]}>
+                    {t.attendance?.halfDay || 'Half Day'}
+                  </Text>
+                </View>
+              )}
+              {isEarlyLeave && (
+                <View
+                  style={[styles.tag, { backgroundColor: C.warning + '20' }]}>
+                  <Text style={[styles.tagText, { color: C.warning }]}>
+                    {t.attendance?.earlyLeave || 'Early Leave'} (
+                    {formatMinutes(earlyLeaveMinutes)})
+                  </Text>
+                </View>
+              )}
+            </View>
+          </>
+        )}
+
+        {/* ── Active Time Block (isPunchedIn & NOT on break) ── */}
+        {!isAbsent && isPunchedIn && punchInTime && !isOnBreak && (
+          <>
+            <View style={[styles.divider, { backgroundColor: C.border }]} />
+            <View style={styles.timerBlock}>
+              <View
+                style={[
+                  styles.iconTile,
+                  { backgroundColor: C.primary + '18' },
+                ]}>
+                <Clock size={wp('5%')} color={C.primary} />
+              </View>
+              <View style={styles.timerInfo}>
+                <Text
+                  style={[styles.timerLabel, { color: C.textSecondary }]}>
+                  {t.breaks?.activeTime || 'ACTIVE TIME'}
+                </Text>
+                <Text style={[styles.timerValue, { color: C.textPrimary }]}>
+                  {elapsedTime}
+                </Text>
+                <Text style={[styles.timerMeta, { color: C.textSecondary }]}>
+                  {t.attendance?.punchedInAt || 'Punched in at'}{' '}
+                  {formatTime(punchInTime)}
+                </Text>
+              </View>
+            </View>
+          </>
+        )}
+
+        {/* ── Break Block — replaces BreakStatusBar entirely ── */}
+        {!isAbsent && isOnBreak && breakStartTime && (
+          <>
+            <View style={[styles.divider, { backgroundColor: C.border }]} />
+            {/* Break main row */}
+            <View
+              style={[
+                styles.breakBlock,
+                { backgroundColor: C.warning + '12' },
+              ]}>
+              <View
+                style={[
+                  styles.iconTile,
+                  { backgroundColor: C.warning + '25' },
+                ]}>
+                <Coffee size={wp('5%')} color={C.warning} />
+              </View>
+              <View style={styles.breakInfo}>
+                <Text
+                  style={[styles.breakTypeLabel, { color: C.textPrimary }]}>
+                  {getBreakLabel(breakType)}
+                </Text>
+                {isBreakInitialLoad ? (
+                  <View style={styles.breakLoadingRow}>
+                    <Text style={[styles.breakValue, { color: C.warning }]}>
+                      00:00
+                    </Text>
+                    <View
+                      style={[
+                        styles.loadingDot,
+                        { backgroundColor: C.warning },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.loadingDot,
+                        { backgroundColor: C.warning, opacity: 0.6 },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.loadingDot,
+                        { backgroundColor: C.warning, opacity: 0.3 },
+                      ]}
+                    />
+                  </View>
+                ) : (
+                  <Text style={[styles.breakValue, { color: C.warning }]}>
+                    {breakDuration}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity
+                style={[
+                  styles.endBreakBtn,
+                  { backgroundColor: C.warning },
+                  (breakLoading || isBreakInitialLoad) && styles.disabledBtn,
+                ]}
+                onPress={onEndBreak}
+                disabled={breakLoading || isBreakInitialLoad}>
+                <Text
+                  style={[styles.endBreakBtnText, { color: C.textDark }]}>
+                  {t.breaks?.endBreak || 'End Break'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {/* Active time shown as a small footer row while on break */}
+            <View
+              style={[
+                styles.breakActiveTimeRow,
+                { borderTopColor: C.border },
+              ]}>
+              <Clock size={wp('3%')} color={C.textSecondary} />
+              <Text
+                style={[
+                  styles.breakActiveTimeText,
+                  { color: C.textSecondary },
+                ]}>
+                {t.breaks?.activeTime || 'Active time'}:{' '}
+                <Text
+                  style={{
+                    color: C.textPrimary,
+                    fontFamily: Fonts.semiBold,
+                  }}>
+                  {elapsedTime}
+                </Text>
               </Text>
             </View>
-          </View>
-        )} */}
+          </>
+        )}
 
-       
+        {/* ── Last Punch Out (hasAnySessionToday && !isPunchedIn && !isAbsent) ── */}
+        {!isAbsent && hasAnySessionToday && !isPunchedIn && (
+          <>
+            <View style={[styles.divider, { backgroundColor: C.border }]} />
+            <View style={styles.lastPunchRow}>
+              <LogOut size={wp('3.5%')} color={C.textSecondary} />
+              <Text
+                style={[styles.lastPunchText, { color: C.textSecondary }]}>
+                {t.attendance?.lastPunchOut || 'Last punch out at'}{' '}
+                <Text
+                  style={[styles.lastPunchBold, { color: C.textPrimary }]}>
+                  {formatTime(lastSession?.punchOut)}
+                </Text>
+              </Text>
+            </View>
+          </>
+        )}
       </View>
     </View>
   );
@@ -245,50 +372,74 @@ const styles = StyleSheet.create({
     marginTop: hp('2%'),
     width: '100%',
   },
-  mainCard: {
+  card: {
     borderRadius: wp('4%'),
     borderWidth: 1,
     overflow: 'hidden',
-    padding: wp('3%'),
   },
-  statusSection: {
+
+  // ── Status Row ──
+  statusRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: hp('0.5%'),
+    justifyContent: 'space-between',
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.4%'),
   },
   statusLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: wp('2%'),
   },
-  statusRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  dot: {
+    width: wp('2%'),
+    height: wp('2%'),
+    borderRadius: wp('1%'),
   },
-  statusText: {
+  statusLabel: {
     fontSize: wp('3.8%'),
     fontFamily: Fonts.semiBold,
   },
-  statusTimeText: {
+  sinceText: {
     fontSize: wp('3%'),
-    fontFamily: Fonts.medium,
+    fontFamily: Fonts.regular,
   },
-  lastPunchSection: {
-    marginBottom: hp('0.8%'),
-    paddingLeft: wp('6.5%'), // Align with icon space
+
+  divider: {
+    height: 0.5,
   },
-  lastPunchText: {
+
+  // ── Absent Block ──
+  absentBlock: {
+    alignItems: 'center',
+    paddingVertical: hp('2.5%'),
+    paddingHorizontal: wp('4%'),
+    gap: hp('0.8%'),
+  },
+  absentIconTile: {
+    width: wp('11%'),
+    height: wp('11%'),
+    borderRadius: wp('3%'),
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: hp('0.4%'),
+  },
+  absentTitle: {
+    fontSize: wp('4%'),
+    fontFamily: Fonts.semiBold,
+  },
+  absentSub: {
     fontSize: wp('3%'),
-    fontFamily: Fonts.medium,
-    fontStyle: 'italic',
+    fontFamily: Fonts.regular,
   },
-  tagsSection: {
+
+  // ── Tags Row ──
+  tagsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: wp('2%'),
-    marginBottom: hp('1%'),
-    paddingLeft: wp('6.5%'), // Align with icon space
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1%'),
   },
   tag: {
     paddingHorizontal: wp('2.5%'),
@@ -299,58 +450,116 @@ const styles = StyleSheet.create({
     fontSize: wp('2.8%'),
     fontFamily: Fonts.semiBold,
   },
-  activeTimeSection: {
+
+  // ── Timer Block (active, not on break) ──
+  timerBlock: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: wp('3%'),
-    paddingVertical: hp('1%'),
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.6%'),
   },
-  activeTimeInfo: {
+  iconTile: {
+    width: wp('10%'),
+    height: wp('10%'),
+    borderRadius: wp('2.5%'),
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  timerInfo: {
     flex: 1,
   },
-  activeTimeLabel: {
-    fontSize: wp('2.8%'),
+  timerLabel: {
+    fontSize: wp('2.6%'),
     fontFamily: Fonts.medium,
     textTransform: 'uppercase',
+    letterSpacing: 0.6,
     marginBottom: hp('0.2%'),
   },
-  activeTimeValue: {
-    fontSize: wp('5%'),
+  timerValue: {
+    fontSize: wp('6%'),
     fontFamily: Fonts.bold,
+    letterSpacing: -0.5,
   },
-  breakSection: {
+  timerMeta: {
+    fontSize: wp('2.8%'),
+    fontFamily: Fonts.regular,
+    marginTop: hp('0.3%'),
+  },
+
+  // ── Break Block ──
+  breakBlock: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: wp('3%'),
-    paddingVertical: hp('0.8%'),
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.4%'),
   },
   breakInfo: {
     flex: 1,
   },
-  breakLabel: {
-    fontSize: wp('2.6%'),
+  breakTypeLabel: {
+    fontSize: wp('3.2%'),
     fontFamily: Fonts.medium,
-    textTransform: 'uppercase',
     marginBottom: hp('0.2%'),
   },
   breakValue: {
     fontSize: wp('4%'),
     fontFamily: Fonts.bold,
+    letterSpacing: -0.3,
   },
-  footerSection: {
-    marginTop: hp('0.5%'),
-    alignItems: 'flex-end',
-    // borderTopWidth: 1,
-    // borderTopColor: 'rgba(0,0,0,0.05)',
-    paddingTop: hp('0.8%'),
+  breakLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp('1%'),
   },
-  footerText: {
-    fontSize: wp('2.6%'),
+  loadingDot: {
+    width: wp('1%'),
+    height: wp('1%'),
+    borderRadius: wp('0.5%'),
+  },
+  endBreakBtn: {
+    paddingHorizontal: wp('3.5%'),
+    paddingVertical: hp('0.9%'),
+    borderRadius: wp('2%'),
+  },
+  endBreakBtnText: {
+    fontSize: wp('3%'),
+    fontFamily: Fonts.medium,
+  },
+  disabledBtn: {
+    opacity: 0.5,
+  },
+  breakActiveTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp('1.5%'),
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('0.8%'),
+    borderTopWidth: 0.5,
+  },
+  breakActiveTimeText: {
+    fontSize: wp('2.8%'),
     fontFamily: Fonts.regular,
+  },
+
+  // ── Last Punch Row ──
+  lastPunchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp('2%'),
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.2%'),
+  },
+  lastPunchText: {
+    fontSize: wp('3%'),
+    fontFamily: Fonts.regular,
+    fontStyle: 'italic',
+  },
+  lastPunchBold: {
+    fontFamily: Fonts.semiBold,
+    fontStyle: 'normal',
   },
 });
 

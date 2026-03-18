@@ -22,7 +22,7 @@ const BreakReasonModal = ({ visible, onClose, onConfirm, loading }) => {
   const { theme } = useTheme();
   const { t } = useLanguage();
   const C = theme.colors;
-  
+
   const [remarks, setRemarks] = useState('');
   const [breakType, setBreakType] = useState('LUNCH');
 
@@ -31,6 +31,10 @@ const BreakReasonModal = ({ visible, onClose, onConfirm, loading }) => {
     { label: t.breaks.tea, value: 'TEA' },
     { label: t.breaks.coffee, value: 'COFFEE' },
     { label: t.breaks.personal, value: 'PERSONAL' },
+    { label: 'Sales Meeting', value: 'SALES_MEETING' },
+    { label: 'Follow Up', value: 'FOLLOW_UP' },
+    { label: 'Demo', value: 'DEMO' },
+    { label: 'Collections', value: 'COLLECTIONS' },
     { label: t.breaks.other, value: 'OTHER' },
   ];
 
@@ -50,10 +54,15 @@ const BreakReasonModal = ({ visible, onClose, onConfirm, loading }) => {
       onRequestClose={onClose}
     >
       <View style={[styles.modalOverlay, { backgroundColor: C.overlayBg }]}>
-        <View style={[styles.modalContent, { 
-          backgroundColor: C.surfaceSolid,
-          borderColor: C.border,
-        }]}>
+        <View
+          style={[
+            styles.modalContent,
+            {
+              backgroundColor: C.surfaceSolid,
+              borderColor: C.border,
+            },
+          ]}
+        >
           <View style={styles.modalHeader}>
             <Text style={[styles.modalTitle, { color: C.textPrimary }]}>
               {t.breaks.startBreak}
@@ -67,14 +76,18 @@ const BreakReasonModal = ({ visible, onClose, onConfirm, loading }) => {
             {t.breaks.breakType}
           </Text>
           <View style={styles.breakTypeContainer}>
-            {breakTypes.map((type) => (
+            {breakTypes.map(type => (
               <TouchableOpacity
                 key={type.value}
                 style={[
                   styles.breakTypeButton,
-                  { 
-                    borderColor: breakType === type.value ? C.primary : C.border,
-                    backgroundColor: breakType === type.value ? C.primary + '20' : 'transparent',
+                  {
+                    borderColor:
+                      breakType === type.value ? C.primary : C.border,
+                    backgroundColor:
+                      breakType === type.value
+                        ? C.primary + '20'
+                        : 'transparent',
                   },
                 ]}
                 onPress={() => setBreakType(type.value)}
@@ -83,7 +96,10 @@ const BreakReasonModal = ({ visible, onClose, onConfirm, loading }) => {
                 <Text
                   style={[
                     styles.breakTypeText,
-                    { color: breakType === type.value ? C.primary : C.textPrimary },
+                    {
+                      color:
+                        breakType === type.value ? C.primary : C.textPrimary,
+                    },
                   ]}
                 >
                   {type.label}
@@ -96,11 +112,14 @@ const BreakReasonModal = ({ visible, onClose, onConfirm, loading }) => {
             {t.breaks.reason}
           </Text>
           <TextInput
-            style={[styles.input, { 
-              backgroundColor: C.inputBg,
-              borderColor: C.inputBorder,
-              color: C.textPrimary,
-            }]}
+            style={[
+              styles.input,
+              {
+                backgroundColor: C.inputBg,
+                borderColor: C.inputBorder,
+                color: C.textPrimary,
+              },
+            ]}
             placeholder={t.breaks.reasonPlaceholder}
             placeholderTextColor={C.textSecondary}
             value={remarks}
@@ -112,20 +131,29 @@ const BreakReasonModal = ({ visible, onClose, onConfirm, loading }) => {
 
           <View style={styles.modalButtons}>
             <TouchableOpacity
-              style={[styles.cancelButton, { 
-                borderColor: C.border,
-              }]}
+              style={[
+                styles.cancelButton,
+                {
+                  borderColor: C.border,
+                },
+              ]}
               onPress={onClose}
               disabled={loading}
             >
-              <Text style={[styles.cancelButtonText, { color: C.textSecondary }]}>
+              <Text
+                style={[styles.cancelButtonText, { color: C.textSecondary }]}
+              >
                 {t.breaks.cancel}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.confirmButton, { 
-                backgroundColor: C.primary,
-              }, loading && { opacity: 0.5 }]}
+              style={[
+                styles.confirmButton,
+                {
+                  backgroundColor: C.primary,
+                },
+                loading && { opacity: 0.5 },
+              ]}
               onPress={handleConfirm}
               disabled={loading}
             >

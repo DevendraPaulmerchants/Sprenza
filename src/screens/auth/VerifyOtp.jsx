@@ -1,4 +1,3 @@
-// src/screens/auth/VerifyOtp.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
@@ -37,7 +36,7 @@ import {
 } from '../../store/actions/authActions';
 
 const VerifyOTP = ({ route, navigation }) => {
-  const { email } = route.params;
+  const { employeeId } = route.params; // Changed from email to employeeId
   const dispatch = useDispatch();
   const { theme } = useTheme();
   const { t } = useLanguage();
@@ -55,7 +54,7 @@ const VerifyOTP = ({ route, navigation }) => {
   const slideAnim = useRef(new Animated.Value(hp('3%'))).current;
 
   useEffect(() => {
-    console.log('🔐 VerifyOTP mounted for email:', email);
+    console.log('🔐 VerifyOTP mounted for employee ID:', employeeId);
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -96,8 +95,8 @@ const VerifyOTP = ({ route, navigation }) => {
       return;
     }
 
-    console.log('🔑 Verifying OTP...');
-    const result = await dispatch(verifyOtp(email, otpString));
+    console.log('🔑 Verifying OTP for employee ID:', employeeId);
+    const result = await dispatch(verifyOtp(employeeId, otpString)); // Pass employeeId instead of email
 
     if (result.success) {
       console.log('✅ OTP verified successfully');
@@ -112,8 +111,8 @@ const VerifyOTP = ({ route, navigation }) => {
     setDisabledd(true);
     if (!canResend) return;
 
-    console.log('📧 Resending OTP...');
-    const result = await dispatch(resendOtp(email));
+    console.log('📧 Resending OTP for employee ID:', employeeId);
+    const result = await dispatch(resendOtp(employeeId)); // Pass employeeId instead of email
     if (result.success) {
       setTimer(30);
       setDisabledd(false);
@@ -132,12 +131,12 @@ const VerifyOTP = ({ route, navigation }) => {
       navigation.navigate('Login');
     }
   };
+
   return (
-    // Outermost View anchors the decorative background — outside KAV so it never shifts
     <View style={[styles.rootContainer, { backgroundColor: C.background }]}>
       <StatusBar barStyle={C.statusBar} backgroundColor={C.background} />
 
-      {/* Fixed decorative blobs — siblings of KAV, not children */}
+      {/* Fixed decorative blobs */}
       <View style={[styles.topShadow, { backgroundColor: C.topShadow }]} />
       <View
         style={[styles.bottomShadow, { backgroundColor: C.bottomShadow }]}
@@ -183,7 +182,7 @@ const VerifyOTP = ({ route, navigation }) => {
                 {t.otp.subtitle}
               </Text>
               <Text style={[styles.otpEmail, { color: C.primary }]}>
-                {email}
+                {employeeId} {/* Display employeeId instead of email */}
               </Text>
             </View>
 
@@ -240,7 +239,6 @@ const VerifyOTP = ({ route, navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  // True root: full screen, holds fixed blobs
   rootContainer: {
     flex: 1,
   },
@@ -253,14 +251,12 @@ const styles = StyleSheet.create({
     borderRadius: wp('7%'),
     justifyContent: 'center',
     alignItems: 'center',
-
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 6,
     elevation: 8,
   },
-  // Top-right decorative blob — absolute, outside KAV
   topShadow: {
     position: 'absolute',
     top: -hp('1%'),
@@ -270,7 +266,6 @@ const styles = StyleSheet.create({
     height: hp('35%'),
     borderBottomLeftRadius: wp('25%'),
   },
-  // Bottom-left decorative blob — absolute, outside KAV
   bottomShadow: {
     position: 'absolute',
     bottom: -hp('1%'),
