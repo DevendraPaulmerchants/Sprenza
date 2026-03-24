@@ -47,7 +47,7 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { Fonts } from '../../utils/GlobalText';
-import { getAddressFromCoords } from '../../utils/utils';
+import { checkAndRequestLocationPermission, getAddressFromCoords } from '../../utils/utils';
 
 // ─────────────────────────────────────────────────
 // 🔧 CONFIGURE YOUR OFFICE HERE
@@ -190,69 +190,92 @@ const GeofenceMapModal = ({
   }, [isInsideGeofence]);
 
   // ── Fetch GPS ─────────────────────────────────────
-  const fetchLocation = useCallback(() => {
-    setIsLocating(true);
-    setLocationError(null);
-    setIsInsideGeofence(null);
-    setDistanceMeters(null);
-    setResolvedAddress(null);
-    progressAnim.setValue(0);
-    fadeAnim.setValue(0);
+// In GeofenceMapModal.jsx, replace the fetchLocation function with this:
 
-    Geolocation.getCurrentPosition(
-      async position => {
-        const { latitude, longitude, accuracy: acc } = position.coords;
-        console.log("position:",position)
-        const coords = { latitude, longitude };
-        setUserCoords(coords);
-        setAccuracy(Math.round(acc));
-        setIsLocating(false);
+const fetchLocation = useCallback(async () => {
+  setIsLocating(true);
+  setLocationError(null);
+  setIsInsideGeofence(null);
+  setDistanceMeters(null);
+  setResolvedAddress(null);
+  progressAnim.setValue(0);
+  fadeAnim.setValue(0);
 
-        const dist = getDistanceMeters(
-          latitude,
-          longitude,
-          OFFICE_CONFIG.latitude,
-          OFFICE_CONFIG.longitude,
-        );
-        const inside = dist <= OFFICE_CONFIG.radiusMeters;
-        setDistanceMeters(Math.round(dist));
-        setIsInsideGeofence(inside);
-
-        // Try to resolve address for remote modal
-        let address = null;
-        try {
-          address = await getAddressFromCoords(latitude, longitude);
-          console.log("address: ",address)
-          setResolvedAddress(address);
-        } catch (_) {
-          // address stays null — coords will still be shown
-        }
-
-        // Pass all 4 values back to parent
-        onStatusChange?.(inside, Math.round(dist), coords, address);
-      },
-      error => {
-        setIsLocating(false);
-        setLocationError(
-          error.code === 1
-            ? t.attendance.locationPermissionDenied ||
-                'Location permission denied. Please enable in Settings.'
-            : error.code === 2
-            ? t.attendance.gpsUnavailable ||
-              'GPS signal unavailable. Please check device settings.'
-            : t.attendance.locationError,
-        );
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 3000,
-        forceRequestLocation: true,
-        forceLocationManager: false,
-        showLocationDialog: true,
-      },
+  // Check and request permission first using the new utility
+  const hasPermission = await checkAndRequestLocationPermission();
+  if (!hasPermission) {
+    setIsLocating(false);
+    setLocationError(
+      t.attendance.locationPermissionDenied ||
+        'Location permission denied. Please enable in Settings.'
     );
-  }, []);
+    return;
+  }
+
+  Geolocation.getCurrentPosition(
+    async position => {
+      const { latitude, longitude, accuracy: acc } = position.coords;
+      console.log("position:", position);
+      const coords = { latitude, longitude };
+      setUserCoords(coords);
+      setAccuracy(Math.round(acc));
+      setIsLocating(false);
+
+      const dist = getDistanceMeters(
+        latitude,
+        longitude,
+        OFFICE_CONFIG.latitude,
+        OFFICE_CONFIG.longitude,
+      );
+      const inside = dist <= OFFICE_CONFIG.radiusMeters;
+      setDistanceMeters(Math.round(dist));
+      setIsInsideGeofence(inside);
+
+      // Try to resolve address for remote modal
+      let address = null;
+      try {
+        address = await getAddressFromCoords(latitude, longitude);
+        console.log("address: ", address);
+        setResolvedAddress(address);
+      } catch (_) {
+        // address stays null — coords will still be shown
+      }
+
+      // Pass all 4 values back to parent
+      onStatusChange?.(inside, Math.round(dist), coords, address);
+    },
+    error => {
+      setIsLocating(false);
+      let errorMsg;
+      switch (error.code) {
+        case 1:
+          errorMsg = t.attendance.locationPermissionDenied ||
+            'Location permission denied. Please enable in Settings.';
+          break;
+        case 2:
+          errorMsg = t.attendance.gpsUnavailable ||
+            'GPS signal unavailable. Please check device settings.';
+          break;
+        case 3:
+          errorMsg = t.attendance.locationTimeout ||
+            'Location request timed out. Please try again.';
+          break;
+        default:
+          errorMsg = t.attendance.locationError ||
+            'Failed to get location. Please try again.';
+      }
+      setLocationError(errorMsg);
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 3000,
+      forceRequestLocation: true,
+      forceLocationManager: false,
+      showLocationDialog: true,
+    },
+  );
+}, [t, onStatusChange]);
 
   const progressWidth = progressAnim.interpolate({
     inputRange: [0, 1],

@@ -1,4 +1,7 @@
-import { getCurrentLocation } from '../../utils/utils';
+import {
+  checkAndRequestLocationPermission,
+  getCurrentLocation,
+} from '../../utils/utils';
 import { getAddressFromCoords } from '../../utils/utils';
 import { launchCamera } from 'react-native-image-picker';
 import { requestCameraPermission } from '../../utils/utils';
@@ -97,6 +100,18 @@ export const punchIn = () => async dispatch => {
 
     await checkNetworkWithRetry();
 
+    // Check and request location permission
+    const hasLocationPermission = await checkAndRequestLocationPermission();
+    if (!hasLocationPermission) {
+      dispatch(
+        setAlert('Location permission is required for attendance', 'error'),
+      );
+      dispatch({
+        type: types.PUNCH_IN_FAIL,
+        payload: 'Location permission denied',
+      });
+      return { success: false, error: 'LOCATION_PERMISSION_DENIED' };
+    }
     const location = await getLocationWithTimeout();
     const { latitude, longitude } = location;
 
@@ -110,7 +125,10 @@ export const punchIn = () => async dispatch => {
     const hasCameraPermission = await requestCameraPermission();
     if (!hasCameraPermission) {
       dispatch(setAlert('Camera permission is required', 'error'));
-      dispatch({ type: types.PUNCH_IN_FAIL, payload: 'Camera permission denied' });
+      dispatch({
+        type: types.PUNCH_IN_FAIL,
+        payload: 'Camera permission denied',
+      });
       return { success: false, error: 'CAMERA_PERMISSION_DENIED' };
     }
 
@@ -141,10 +159,13 @@ export const punchIn = () => async dispatch => {
     formData.append('longitude', String(longitude));
     formData.append('address', address);
     formData.append('timestamp', String(Date.now()));
-    formData.append('deviceInfo', JSON.stringify({
-      platform: Platform.OS,
-      version: Platform.Version,
-    }));
+    formData.append(
+      'deviceInfo',
+      JSON.stringify({
+        platform: Platform.OS,
+        version: Platform.Version,
+      }),
+    );
 
     let fileUri = compressedImage.uri;
     if (Platform.OS === 'android' && !fileUri.startsWith('file://')) {
@@ -173,7 +194,10 @@ export const punchIn = () => async dispatch => {
     }
 
     console.log('✅ Punch in successful');
-    dispatch({ type: types.PUNCH_IN_SUCCESS, payload: response.data?.data || response.data });
+    dispatch({
+      type: types.PUNCH_IN_SUCCESS,
+      payload: response.data?.data || response.data,
+    });
     dispatch(setAlert('Attendance marked successfully!', 'success'));
     await dispatch(getAttendanceHistory());
 
@@ -200,7 +224,8 @@ export const punchIn = () => async dispatch => {
       errorMessage = 'Camera not responding. Please restart app.';
       errorType = 'CAMERA_TIMEOUT';
     } else {
-      errorMessage = error.response?.data?.message || error.message || 'Punch in failed';
+      errorMessage =
+        error.response?.data?.message || error.message || 'Punch in failed';
     }
 
     dispatch({ type: types.PUNCH_IN_FAIL, payload: errorMessage });
@@ -221,6 +246,19 @@ export const punchOut = () => async dispatch => {
 
     await checkNetworkWithRetry();
 
+    // Check and request location permission
+    const hasLocationPermission = await checkAndRequestLocationPermission();
+    if (!hasLocationPermission) {
+      dispatch(
+        setAlert('Location permission is required for attendance', 'error'),
+      );
+      dispatch({
+        type: types.PUNCH_OUT_FAIL,
+        payload: 'Location permission denied',
+      });
+      return { success: false, error: 'LOCATION_PERMISSION_DENIED' };
+    }
+
     const location = await getLocationWithTimeout();
     const { latitude, longitude } = location;
 
@@ -234,7 +272,10 @@ export const punchOut = () => async dispatch => {
     const hasCameraPermission = await requestCameraPermission();
     if (!hasCameraPermission) {
       dispatch(setAlert('Camera permission is required', 'error'));
-      dispatch({ type: types.PUNCH_OUT_FAIL, payload: 'Camera permission denied' });
+      dispatch({
+        type: types.PUNCH_OUT_FAIL,
+        payload: 'Camera permission denied',
+      });
       return { success: false, error: 'CAMERA_PERMISSION_DENIED' };
     }
 
@@ -294,7 +335,10 @@ export const punchOut = () => async dispatch => {
     }
 
     console.log('✅ Punch out successful');
-    dispatch({ type: types.PUNCH_OUT_SUCCESS, payload: response.data?.data || response.data });
+    dispatch({
+      type: types.PUNCH_OUT_SUCCESS,
+      payload: response.data?.data || response.data,
+    });
     dispatch(setAlert('Punch out successful!', 'success'));
     await dispatch(getAttendanceHistory());
 
@@ -313,7 +357,8 @@ export const punchOut = () => async dispatch => {
     } else if (error.message === 'CAMERA_TIMEOUT') {
       errorMessage = 'Camera not responding. Please restart app.';
     } else {
-      errorMessage = error.response?.data?.message || error.message || 'Punch out failed';
+      errorMessage =
+        error.response?.data?.message || error.message || 'Punch out failed';
     }
 
     dispatch({ type: types.PUNCH_OUT_FAIL, payload: errorMessage });
@@ -327,41 +372,48 @@ export const punchOut = () => async dispatch => {
 };
 
 // ==================== GET ATTENDANCE HISTORY ====================
-export const getAttendanceHistory = (params = {}) => async dispatch => {
-  try {
-    console.log('📊 Fetching attendance history...');
-    dispatch({ type: types.ATTENDANCE_HISTORY_REQUEST });
+export const getAttendanceHistory =
+  (params = {}) =>
+  async dispatch => {
+    try {
+      console.log('📊 Fetching attendance history...');
+      dispatch({ type: types.ATTENDANCE_HISTORY_REQUEST });
 
-    const queryParams = new URLSearchParams();
-    if (params.month) queryParams.append('month', params.month);
-    if (params.year) queryParams.append('year', params.year);
-    if (params.limit) queryParams.append('limit', params.limit);
+      const queryParams = new URLSearchParams();
+      if (params.month) queryParams.append('month', params.month);
+      if (params.year) queryParams.append('year', params.year);
+      if (params.limit) queryParams.append('limit', params.limit);
 
-    const queryString = queryParams.toString();
-    const endpoint = `/attendance/history${queryString ? `?${queryString}` : ''}`;
+      const queryString = queryParams.toString();
+      const endpoint = `/attendance/history${
+        queryString ? `?${queryString}` : ''
+      }`;
 
-    const response = await apiService.get(endpoint);
+      const response = await apiService.get(endpoint);
 
-    console.log('📡 Response status:', response.status);
+      console.log('📡 Response status:', response.status);
 
-    if (response.status !== 200) {
-      throw new Error(response.data?.message || 'Failed to fetch history');
+      if (response.status !== 200) {
+        throw new Error(response.data?.message || 'Failed to fetch history');
+      }
+
+      const historyData = response.data?.data || [];
+      console.log('✅ History fetched:', historyData, 'records');
+
+      dispatch({
+        type: types.ATTENDANCE_HISTORY_SUCCESS,
+        payload: historyData,
+      });
+      return { success: true, data: historyData };
+    } catch (error) {
+      console.log('❌ Get history error:', error.message);
+      dispatch({
+        type: types.ATTENDANCE_HISTORY_FAIL,
+        payload: error.message || 'Failed to fetch history',
+      });
+      return { success: false, error: error.message };
     }
-
-    const historyData = response.data?.data || [];
-    console.log('✅ History fetched:', historyData, 'records');
-
-    dispatch({ type: types.ATTENDANCE_HISTORY_SUCCESS, payload: historyData });
-    return { success: true, data: historyData };
-  } catch (error) {
-    console.log('❌ Get history error:', error.message);
-    dispatch({
-      type: types.ATTENDANCE_HISTORY_FAIL,
-      payload: error.message || 'Failed to fetch history',
-    });
-    return { success: false, error: error.message };
-  }
-};
+  };
 
 // ==================== GET TODAY'S ATTENDANCE ====================
 export const getTodayAttendance = () => async dispatch => {
@@ -374,7 +426,9 @@ export const getTodayAttendance = () => async dispatch => {
     console.log('📡 Response status:', response.status);
 
     if (response.status !== 200) {
-      throw new Error(response.data?.message || "Failed to fetch today's attendance");
+      throw new Error(
+        response.data?.message || "Failed to fetch today's attendance",
+      );
     }
 
     const attendanceData = response.data?.data || null;
@@ -383,7 +437,7 @@ export const getTodayAttendance = () => async dispatch => {
     dispatch({ type: types.TODAY_ATTENDANCE_SUCCESS, payload: attendanceData });
     return { success: true, data: attendanceData };
   } catch (error) {
-    console.log("❌ Get today attendance error:", error.message);
+    console.log('❌ Get today attendance error:', error.message);
     dispatch({
       type: types.TODAY_ATTENDANCE_FAIL,
       payload: error.message || "Failed to fetch today's attendance",
@@ -393,25 +447,32 @@ export const getTodayAttendance = () => async dispatch => {
 };
 
 // ==================== GET ATTENDANCE STATS ====================
-export const getAttendanceStats = (period = 'month') => async dispatch => {
-  try {
-    console.log(`📊 Fetching attendance stats for ${period}...`);
-    dispatch({ type: types.ATTENDANCE_STATS_REQUEST });
+export const getAttendanceStats =
+  (period = 'month') =>
+  async dispatch => {
+    try {
+      console.log(`📊 Fetching attendance stats for ${period}...`);
+      dispatch({ type: types.ATTENDANCE_STATS_REQUEST });
 
-    const response = await apiService.get(`/attendance/stats?period=${period}`);
+      const response = await apiService.get(
+        `/attendance/stats?period=${period}`,
+      );
 
-    if (response.status !== 200) {
-      throw new Error(response.data?.message || 'Failed to fetch stats');
+      if (response.status !== 200) {
+        throw new Error(response.data?.message || 'Failed to fetch stats');
+      }
+
+      dispatch({
+        type: types.ATTENDANCE_STATS_SUCCESS,
+        payload: response.data?.data,
+      });
+      return { success: true, data: response.data?.data };
+    } catch (error) {
+      console.log('❌ Get stats error:', error.message);
+      dispatch({ type: types.ATTENDANCE_STATS_FAIL, payload: error.message });
+      return { success: false };
     }
-
-    dispatch({ type: types.ATTENDANCE_STATS_SUCCESS, payload: response.data?.data });
-    return { success: true, data: response.data?.data };
-  } catch (error) {
-    console.log('❌ Get stats error:', error.message);
-    dispatch({ type: types.ATTENDANCE_STATS_FAIL, payload: error.message });
-    return { success: false };
-  }
-};
+  };
 
 // ==================== CLEAR ATTENDANCE STATE ====================
 export const clearAttendanceState = () => ({
@@ -456,7 +517,10 @@ export const breakIn = (breakType, remarks) => async (dispatch, getState) => {
     }
 
     console.log('✅ Break in successful');
-    dispatch({ type: 'BREAK_IN_SUCCESS', payload: response.data?.data || response.data });
+    dispatch({
+      type: 'BREAK_IN_SUCCESS',
+      payload: response.data?.data || response.data,
+    });
     dispatch(setAlert('Break started!', 'success'));
     await dispatch(getAttendanceHistory());
 
@@ -513,7 +577,10 @@ export const breakOut = (breakType, remarks) => async (dispatch, getState) => {
     }
 
     console.log('✅ Break out successful');
-    dispatch({ type: 'BREAK_OUT_SUCCESS', payload: response.data?.data || response.data });
+    dispatch({
+      type: 'BREAK_OUT_SUCCESS',
+      payload: response.data?.data || response.data,
+    });
     dispatch(setAlert('Break ended!', 'success'));
     await dispatch(getAttendanceHistory());
 

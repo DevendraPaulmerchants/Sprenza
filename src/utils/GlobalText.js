@@ -2,8 +2,8 @@
 // Theme colors are now driven by ThemeContext — import useTheme() in components
 // Language strings are driven by LanguageContext — import useLanguage() in components
 
-export const BASE_URL = 'http://103.171.97.71/api/v1';
-const GOOGLE_API_KEY = 'AIzaSyDNY5oQOOYz1dtYXZUn4WNbJPwiOE9OENE';
+export const BASE_URL = 'https://api-presenza.paulmerchants.net/api/v1';
+export const GOOGLE_API_KEY = 'AIzaSyDNY5oQOOYz1dtYXZUn4WNbJPwiOE9OENE';
 
 // ══════════════════════════════════════════════════════════
 // STATIC FONTS (unchanged regardless of theme)

@@ -1,5 +1,5 @@
 // src/screens/home/punch/DailyPunch.jsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,8 @@ import {
   Animated,
   Easing,
   StatusBar,
-  Alert,
+  AppState,
+  ActivityIndicator,
 } from 'react-native';
 import {
   widthPercentageToDP as wp,
@@ -39,6 +40,31 @@ import {
 import { setAlert } from '../../../store/actions/authActions';
 import GeofenceMapModal from '../../../components/modals/GeofenceMapModal';
 import RemoteLocationModal from '../../../components/modals/RemoteLocationModal';
+import {
+  checkAndRequestLocationPermission,
+  getCurrentLocation,
+} from '../../../utils/utils';
+
+// Office configuration
+const OFFICE_CONFIG = {
+  name: 'Head Office',
+  latitude: 30.737875,
+  longitude: 76.775631,
+  radiusMeters: 100,
+};
+
+const getDistanceMeters = (lat1, lon1, lat2, lon2) => {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
 
 const DailyPunch = ({ navigation }) => {
   const dispatch = useDispatch();
@@ -46,13 +72,14 @@ const DailyPunch = ({ navigation }) => {
   const { t } = useLanguage();
   const C = theme.colors;
 
-  const { punchInLoading, isCheckedIn, location, punchError, history } =
-    useSelector(state => state.attendance);
+  const { punchInLoading, location, punchError, history } = useSelector(
+    state => state.attendance,
+  );
 
-  // ── Profile — for sales team detection ────────────
+  // Profile for sales team detection
   const { profile } = useSelector(state => state.employeeProfile);
   const department = profile?.[0]?.department || '';
-  const isSalesTeam = department.toLowerCase().includes('sales');
+  const isSalesTeam = department?.toLowerCase().includes('sales');
 
   const [uiState, setUiState] = useState('idle');
   const [mapVisible, setMapVisible] = useState(false);
@@ -66,95 +93,29 @@ const DailyPunch = ({ navigation }) => {
   const [distance, setDistance] = useState(null);
   const [userCoords, setUserCoords] = useState(null);
   const [userAddress, setUserAddress] = useState(null);
-
-  // ── Remote location modal (sales team only) ────────
+  const [isCheckingLocation, setIsCheckingLocation] = useState(false);
+  const [locationCheckDone, setLocationCheckDone] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [remoteModalVisible, setRemoteModalVisible] = useState(false);
-  const [pendingRemotePunch, setPendingRemotePunch] = useState(false);
 
-  // Check if user has an active session (punched in but not out)
+  // Check if user has active session
   const today = new Date().toISOString().split('T')[0];
-  const todayRecord = history?.find(r => r.date.split('T')[0] === today);
+  const todayRecord = history?.find(r => r.date?.split('T')[0] === today);
   const hasActiveSession = todayRecord?.isPunchedIn === true;
 
   // ── Animations ─────────────────────────────────
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(hp('4%'))).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const rotateAnim = useRef(new Animated.Value(0)).current;
   const waveAnim = useRef(new Animated.Value(0)).current;
   const dotOpacityAnim = useRef(new Animated.Value(1)).current;
+  const rotationAnim = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    const timeInterval = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 60000);
-
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        friction: 9,
-        tension: 45,
-        useNativeDriver: true,
-      }),
-    ]).start();
-    startPulse();
-    startWave();
-    startDotBlink();
-
-    return () => {
-      clearInterval(timeInterval);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (punchInLoading) {
-      setUiState('loading');
-      startRotation();
-    } else if (punchError) {
-      setUiState('error');
-      stopRotation();
-      setTimeout(() => setUiState('idle'), 3000);
-    } else {
-      setUiState('idle');
-      stopRotation();
-    }
-  }, [punchInLoading, punchError]);
-
-  useEffect(() => {
-    if (uiState === 'loading') {
-      setStepStatuses({
-        location: 'success',
-        selfie: 'success',
-        upload: 'loading',
-      });
-    } else if (uiState === 'success') {
-      setStepStatuses({
-        location: 'success',
-        selfie: 'success',
-        upload: 'success',
-      });
-    } else if (uiState === 'error') {
-      setStepStatuses({
-        location: 'success',
-        selfie: 'success',
-        upload: 'error',
-      });
-    } else {
-      setStepStatuses({
-        location: 'pending',
-        selfie: 'pending',
-        upload: 'pending',
-      });
-    }
-  }, [uiState]);
+  const isLocationFetchingRef = useRef(false);
+  const rotationLoopRef = useRef(null);
 
   // ── Animation helpers ──────────────────────────
-  const startPulse = () =>
+  const startPulse = useCallback(() => {
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
@@ -170,25 +131,30 @@ const DailyPunch = ({ navigation }) => {
         }),
       ]),
     ).start();
+  }, [pulseAnim]);
 
-  const startRotation = () => {
-    rotateAnim.setValue(0);
-    Animated.loop(
-      Animated.timing(rotateAnim, {
+  const startRotation = useCallback(() => {
+    rotationAnim.setValue(0);
+    rotationLoopRef.current = Animated.loop(
+      Animated.timing(rotationAnim, {
         toValue: 1,
         duration: 900,
         easing: Easing.linear,
         useNativeDriver: true,
       }),
-    ).start();
-  };
+    );
+    rotationLoopRef.current.start();
+  }, [rotationAnim]);
 
-  const stopRotation = () => {
-    rotateAnim.stopAnimation();
-    rotateAnim.setValue(0);
-  };
+  const stopRotation = useCallback(() => {
+    if (rotationLoopRef.current) {
+      rotationLoopRef.current.stop();
+      rotationLoopRef.current = null;
+    }
+    rotationAnim.setValue(0);
+  }, [rotationAnim]);
 
-  const startWave = () =>
+  const startWave = useCallback(() => {
     Animated.loop(
       Animated.sequence([
         Animated.timing(waveAnim, {
@@ -204,8 +170,9 @@ const DailyPunch = ({ navigation }) => {
         }),
       ]),
     ).start();
+  }, [waveAnim]);
 
-  const startDotBlink = () =>
+  const startDotBlink = useCallback(() => {
     Animated.loop(
       Animated.sequence([
         Animated.timing(dotOpacityAnim, {
@@ -220,7 +187,155 @@ const DailyPunch = ({ navigation }) => {
         }),
       ]),
     ).start();
+  }, [dotOpacityAnim]);
 
+  // ── Location check function ──
+  const checkLocationAutomatically = useCallback(async () => {
+    if (hasActiveSession || isLocationFetchingRef.current) return;
+
+    isLocationFetchingRef.current = true;
+    setIsCheckingLocation(true);
+    setLocationCheckDone(false);
+
+    try {
+      const hasPermission = await checkAndRequestLocationPermission();
+      if (!hasPermission) {
+        setIsInsideGeofence(null);
+        return;
+      }
+
+      const locationData = await getCurrentLocation();
+      const dist = getDistanceMeters(
+        locationData.latitude,
+        locationData.longitude,
+        OFFICE_CONFIG.latitude,
+        OFFICE_CONFIG.longitude,
+      );
+
+      const inside = dist <= OFFICE_CONFIG.radiusMeters;
+      setIsInsideGeofence(inside);
+      setDistance(Math.round(dist));
+      setUserCoords({
+        latitude: locationData.latitude,
+        longitude: locationData.longitude,
+      });
+    } catch (e) {
+      console.log('Location error:', e);
+      setIsInsideGeofence(null);
+    } finally {
+      setIsCheckingLocation(false);
+      setLocationCheckDone(true);
+      isLocationFetchingRef.current = false;
+    }
+  }, [hasActiveSession]);
+
+  // ── Initialize animations and location ──
+  useEffect(() => {
+    // Start all animations
+    startPulse();
+    startWave();
+    startDotBlink();
+
+    // Entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        friction: 9,
+        tension: 45,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Initial location check
+    const timer = setTimeout(() => {
+      checkLocationAutomatically();
+    }, 500);
+
+    // Time interval
+    const timeInterval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(timeInterval);
+      stopRotation();
+    };
+  }, []);
+
+  // ── App state listener ──
+  const lastCheckRef = useRef(0);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      const now = Date.now();
+      if (
+        nextAppState === 'active' &&
+        !hasActiveSession &&
+        now - lastCheckRef.current > 5000
+      ) {
+        lastCheckRef.current = now;
+        checkLocationAutomatically();
+      }
+    });
+    return () => subscription.remove();
+  }, [checkLocationAutomatically, hasActiveSession]);
+
+  // ── UI State management ──
+  useEffect(() => {
+    if (punchInLoading) {
+      setUiState('loading');
+      setStepStatuses({
+        location: 'success',
+        selfie: 'success',
+        upload: 'loading',
+      });
+    } else if (punchError) {
+      setUiState('error');
+      setStepStatuses({
+        location: 'success',
+        selfie: 'success',
+        upload: 'error',
+      });
+      const timer = setTimeout(() => setUiState('idle'), 3000);
+      return () => clearTimeout(timer);
+    } else {
+      setUiState('idle');
+      setStepStatuses({
+        location: 'pending',
+        selfie: 'pending',
+        upload: 'pending',
+      });
+    }
+  }, [punchInLoading, punchError]);
+
+  // ── Manage rotation animation during location fetch and API call ──
+  useEffect(() => {
+    const showLoader = isCheckingLocation && !locationCheckDone;
+    if (showLoader || punchInLoading) {
+      startRotation();
+    } else {
+      stopRotation();
+    }
+  }, [
+    isCheckingLocation,
+    locationCheckDone,
+    punchInLoading,
+    startRotation,
+    stopRotation,
+  ]);
+
+  // ── Derived values ──
+  const outsideGeofence = isInsideGeofence === false;
+  const showLoader = isCheckingLocation && !locationCheckDone;
+  const rotation = rotationAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
   const waveScale = waveAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [1, 1.9],
@@ -229,12 +344,165 @@ const DailyPunch = ({ navigation }) => {
     inputRange: [0, 0.4, 1],
     outputRange: [0.45, 0.15, 0],
   });
-  const rotation = rotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
 
-  // ── Step rendering ─────────────────────────────
+  const isPunchDisabled =
+    punchInLoading ||
+    hasActiveSession ||
+    isCheckingLocation ||
+    (!isSalesTeam && outsideGeofence);
+
+  const getAccentColor = () => {
+    if (hasActiveSession) return C.warning;
+    if (isSalesTeam && outsideGeofence) return C.warning;
+    if (!isSalesTeam && outsideGeofence) return C.error;
+    if (showLoader || punchInLoading) return C.primary;
+    return C.primary;
+  };
+
+  const accentColor = getAccentColor();
+
+  const getCircleIcon = () => {
+    if (hasActiveSession)
+      return <CheckCircle size={wp('14%')} color={C.textDark} />;
+    if (!isSalesTeam && outsideGeofence)
+      return <XCircle size={wp('14%')} color={C.textDark} />;
+    if (isSalesTeam && outsideGeofence)
+      return <Briefcase size={wp('14%')} color={C.textDark} />;
+    if (showLoader || punchInLoading) {
+      return (
+        <Animated.View style={{ transform: [{ rotate: rotation }] }}>
+          <Loader size={wp('14%')} color={C.textDark} />
+        </Animated.View>
+      );
+    }
+    if (uiState === 'success')
+      return <CheckCircle size={wp('14%')} color={C.textDark} />;
+    if (uiState === 'error')
+      return <Frown size={wp('14%')} color={C.textDark} />;
+    return <Camera size={wp('14%')} color={C.textDark} />;
+  };
+
+  const getCircleLabel = () => {
+    if (hasActiveSession)
+      return t.attendance.alreadyPunchedIn || 'ALREADY PUNCHED IN';
+    if (showLoader)
+      return t.attendance.gettingLocation || 'GETTING LOCATION...';
+    if (punchInLoading) return t.attendance.processing || 'PROCESSING...';
+    if (!isSalesTeam && outsideGeofence)
+      return t.attendance.outsideGeofenceStatus || 'OUT OF RANGE';
+    if (isSalesTeam && outsideGeofence)
+      return t?.remoteLocation?.remotePunchIn || 'REMOTE PUNCH IN';
+    if (uiState === 'success') return t.attendance.success || 'SUCCESS!';
+    if (uiState === 'error') return t.attendance.error || 'ERROR!';
+    return t.attendance.punchIn;
+  };
+
+  const getCircleSubLabel = () => {
+    if (hasActiveSession)
+      return (
+        t.attendance.alreadyHaveActiveSession || 'You have an active session'
+      );
+    if (showLoader)
+      return t.attendance.detectingLocation || 'Detecting your location...';
+    if (punchInLoading)
+      return t.attendance.verifying || 'Verifying your details...';
+    if (!isSalesTeam && outsideGeofence)
+      return t.attendance.openMap || 'Open map to verify';
+    if (isSalesTeam && outsideGeofence)
+      return t?.remoteLocation?.tapToConfirm || 'Tap to confirm location';
+    if (uiState === 'error') return t.attendance.tapRetry || 'Tap to retry';
+    return '';
+  };
+
+  const getSyncLabel = () => {
+    if (hasActiveSession) return t.attendance.sessionActive || 'ACTIVE SESSION';
+    if (showLoader) return t.attendance.locating || 'LOCATING...';
+    if (punchInLoading) return t.attendance.processing || 'PROCESSING';
+    if (isSalesTeam && isInsideGeofence === false)
+      return t?.remoteLocation?.remoteLabel || 'REMOTE LOCATION';
+    if (isInsideGeofence === false)
+      return t.attendance.outsideGeofenceStatus || 'OUTSIDE GEOFENCE';
+    if (isInsideGeofence === true)
+      return t.attendance.insideGeofenceStatus || 'INSIDE GEOFENCE';
+    if (uiState === 'error') return t.attendance.failed || 'FAILED';
+    return t.attendance.readyToSync;
+  };
+
+  const getGeofenceMessage = () => {
+    if (hasActiveSession)
+      return t.attendance.cannotPunchTwice || 'You are already punched in';
+    if (showLoader)
+      return t.attendance.checkingLocation || 'Checking your location...';
+    if (punchInLoading)
+      return t.attendance.verifyingAttendance || 'Verifying your attendance...';
+    if (isSalesTeam && isInsideGeofence === false) {
+      return (
+        t?.remoteLocation?.salesOutsideMsg ||
+        'Remote punch-in available for sales team'
+      );
+    }
+    if (isInsideGeofence === true)
+      return t.geofence.youAreInside || 'You are inside the geofence';
+    if (isInsideGeofence === false)
+      return t.geofence.youAreOutside || 'You are outside the geofence';
+    return t.geofence.checking || 'Checking your location...';
+  };
+
+  const syncDotColor = hasActiveSession
+    ? C.warning
+    : isCheckingLocation || punchInLoading
+    ? C.primary
+    : isSalesTeam && isInsideGeofence === false
+    ? C.warning
+    : isInsideGeofence === false
+    ? C.error
+    : isInsideGeofence === true
+    ? C.success
+    : C.success;
+
+  const syncTextColor = syncDotColor;
+
+  const geofenceStripColors = {
+    bg: hasActiveSession
+      ? C.warning + '18'
+      : showLoader || punchInLoading
+      ? C.primary + '18'
+      : isSalesTeam && isInsideGeofence === false
+      ? C.warning + '18'
+      : isInsideGeofence
+      ? C.success + '18'
+      : C.error + '18',
+    border: hasActiveSession
+      ? C.warning + '50'
+      : showLoader || punchInLoading
+      ? C.primary + '50'
+      : isSalesTeam && isInsideGeofence === false
+      ? C.warning + '50'
+      : isInsideGeofence
+      ? C.success + '50'
+      : C.error + '50',
+    text: hasActiveSession
+      ? C.warning
+      : showLoader || punchInLoading
+      ? C.primary
+      : isSalesTeam && isInsideGeofence === false
+      ? C.warning
+      : isInsideGeofence
+      ? C.success
+      : C.error,
+  };
+
+  const getGeofenceStripIcon = () => {
+    const size = wp('3.5%');
+    if (hasActiveSession) return <CheckCircle2 size={size} color={C.warning} />;
+    if (showLoader || punchInLoading)
+      return <Loader size={size} color={C.primary} />;
+    if (isSalesTeam && isInsideGeofence === false)
+      return <Briefcase size={size} color={C.warning} />;
+    if (isInsideGeofence) return <CheckCircle2 size={size} color={C.success} />;
+    return <AlertTriangle size={size} color={C.error} />;
+  };
+
   const getStepIcon = (step, status) => {
     const size = wp('4%');
     if (step === 'upload' && status === 'loading') {
@@ -280,154 +548,31 @@ const DailyPunch = ({ navigation }) => {
     }
   };
 
-  // ── Punch circle derived values ────────────────
-  const outsideGeofence = isInsideGeofence === false;
-
-  const isPunchDisabled = isSalesTeam
-    ? punchInLoading || hasActiveSession
-    : punchInLoading || outsideGeofence || hasActiveSession;
-
-  const getAccentColor = () => {
-    if (hasActiveSession) return C.warning;
-    if (isSalesTeam && outsideGeofence) return C.warning;
-    if (!isSalesTeam && outsideGeofence) return C.error;
-    return C.primary;
-  };
-
-  const accentColor = getAccentColor();
-
-  const getCircleIcon = () => {
-    if (hasActiveSession)
-      return <CheckCircle size={wp('14%')} color={C.textDark} />;
-    if (!isSalesTeam && outsideGeofence)
-      return <XCircle size={wp('14%')} color={C.textDark} />;
-    if (isSalesTeam && outsideGeofence)
-      return <Briefcase size={wp('14%')} color={C.textDark} />;
-    if (uiState === 'loading')
-      return (
-        <Animated.View style={{ transform: [{ rotate: rotation }] }}>
-          <Loader size={wp('14%')} color={C.textDark} />
-        </Animated.View>
-      );
-    if (uiState === 'success')
-      return <CheckCircle size={wp('14%')} color={C.textDark} />;
-    if (uiState === 'error')
-      return <Frown size={wp('14%')} color={C.textDark} />;
-    return <Camera size={wp('14%')} color={C.textDark} />;
-  };
-
-  const getCircleLabel = () => {
-    if (hasActiveSession)
-      return t.attendance.alreadyPunchedIn || 'ALREADY PUNCHED IN';
-    if (!isSalesTeam && outsideGeofence)
-      return t.attendance.outsideGeofenceStatus || 'Out of Range';
-    if (isSalesTeam && outsideGeofence)
-      return t?.remoteLocation?.remotePunchIn || 'REMOTE PUNCH IN';
-    if (uiState === 'loading')
-      return t.attendance.processing || 'PROCESSING...';
-    if (uiState === 'success') return t.attendance.success || 'SUCCESS!';
-    if (uiState === 'error') return t.attendance.error || 'ERROR!';
-    return t.attendance.punchIn;
-  };
-
-  const getCircleSubLabel = () => {
-    if (hasActiveSession)
-      return (
-        t.attendance.alreadyHaveActiveSession || 'You have an active session'
-      );
-    if (!isSalesTeam && outsideGeofence)
-      return t.attendance.openMap || 'Open map to verify';
-    if (isSalesTeam && outsideGeofence)
-      return t?.remoteLocation?.tapToConfirm || 'Tap to confirm location';
-    if (uiState === 'error') return t.attendance.tapRetry || 'Tap to retry';
-    return '';
-  };
-
-  const getSyncLabel = () => {
-    if (hasActiveSession) return t.attendance.sessionActive || 'ACTIVE SESSION';
-    if (isSalesTeam && isInsideGeofence === false)
-      return t?.remoteLocation?.remoteLabel || 'REMOTE LOCATION';
-    if (isInsideGeofence === false)
-      return t.attendance.outsideGeofenceStatus || 'OUTSIDE GEOFENCE';
-    if (isInsideGeofence === true)
-      return t.attendance.insideGeofenceStatus || 'INSIDE GEOFENCE';
-    if (uiState === 'error') return t.attendance.failed || 'FAILED';
-    if (uiState === 'loading') return t.attendance.processing || 'PROCESSING';
-    return t.attendance.readyToSync;
-  };
-
-  const getGeofenceMessage = () => {
-    if (hasActiveSession) {
-      return t.attendance.cannotPunchTwice || 'You are already punched in';
-    }
-    if (isSalesTeam && isInsideGeofence === false) {
-      return (
-        t?.remoteLocation?.salesOutsideMsg ||
-        'Remote punch-in available for sales team'
-      );
-    }
-    if (isInsideGeofence === true) {
-      return t.geofence.youAreInside || 'You are inside the geofence';
-    }
-    if (isInsideGeofence === false) {
-      return t.geofence.youAreOutside || 'You are outside the geofence';
-    }
-    return t.geofence.checking || 'Checking your location...';
-  };
-
-  // Sync dot / text color
-  const syncDotColor = hasActiveSession
-    ? C.warning
-    : isSalesTeam && isInsideGeofence === false
-    ? C.warning
-    : isInsideGeofence === false
-    ? C.error
-    : isInsideGeofence === true
-    ? C.success
-    : C.success;
-
-  const syncTextColor = hasActiveSession
-    ? C.warning
-    : isSalesTeam && isInsideGeofence === false
-    ? C.warning
-    : isInsideGeofence === false
-    ? C.error
-    : isInsideGeofence === true
-    ? C.success
-    : C.textSecondary;
-
-  // ── Geofence strip color ────────────────────────
-  const getGeofenceStripColors = () => {
-    if (hasActiveSession) return { bg: C.warning + '18', border: C.warning + '50', text: C.warning };
-    if (isSalesTeam && isInsideGeofence === false)
-      return { bg: C.warning + '18', border: C.warning + '50', text: C.warning };
-    if (isInsideGeofence) return { bg: C.success + '18', border: C.success + '50', text: C.success };
-    return { bg: C.error + '18', border: C.error + '50', text: C.error };
-  };
-
-  const geofenceStripColors = getGeofenceStripColors();
-
-  const getGeofenceStripIcon = () => {
-    const size = wp('3.5%');
-    if (hasActiveSession) return <CheckCircle2 size={size} color={C.warning} />;
-    if (isSalesTeam && isInsideGeofence === false)
-      return <Briefcase size={size} color={C.warning} />;
-    if (isInsideGeofence)
-      return <CheckCircle2 size={size} color={C.success} />;
-    return <AlertTriangle size={size} color={C.error} />;
-  };
-
-  // ── Execute the actual punch ───────────────────
+  // ── Execute punch ──
   const executePunch = async () => {
-    const result = await dispatch(punchIn());
-    if (result?.success) {
-      dispatch(setAlert(t.alerts.punchInSuccess, 'success'));
-      await dispatch(getAttendanceHistory());
-      navigation.replace('Home');
+    setIsProcessing(true);
+    try {
+      const result = await dispatch(punchIn());
+      if (result?.success) {
+        setUiState('success');
+        dispatch(setAlert(t.alerts.punchInSuccess, 'success'));
+        await dispatch(getAttendanceHistory());
+        setTimeout(() => {
+          navigation.replace('Home');
+        }, 1500);
+      } else {
+        setUiState('error');
+        dispatch(setAlert(result?.error || t.alerts.punchInFailed, 'error'));
+      }
+    } catch (err) {
+      setUiState('error');
+      dispatch(setAlert(t.alerts.punchInFailed, 'error'));
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  // ── Punch handler ──────────────────────────────
+  // ── Punch handler ──
   const handlePunch = async () => {
     if (hasActiveSession) {
       dispatch(
@@ -439,7 +584,7 @@ const DailyPunch = ({ navigation }) => {
       return;
     }
 
-    if (punchInLoading) return;
+    if (punchInLoading || isCheckingLocation) return;
 
     // Non-sales: block if outside geofence
     if (!isSalesTeam && outsideGeofence) {
@@ -453,23 +598,31 @@ const DailyPunch = ({ navigation }) => {
       return;
     }
 
-    // Inside geofence OR sales team inside — proceed directly
+    // Inside geofence or sales team inside — proceed
     await executePunch();
   };
 
-  // ── Remote modal confirm ───────────────────────
   const handleRemoteConfirm = async () => {
-    setPendingRemotePunch(true);
     setRemoteModalVisible(false);
     await executePunch();
-    setPendingRemotePunch(false);
   };
 
-  const handleGeofenceStatusChange = (status, distanceValue, coords, address) => {
+  const handleGeofenceStatusChange = (
+    status,
+    distanceValue,
+    coords,
+    address,
+  ) => {
     setIsInsideGeofence(status);
     setDistance(distanceValue);
     if (coords) setUserCoords(coords);
     if (address) setUserAddress(address);
+  };
+
+  const handleManualLocationRefresh = () => {
+    if (!isCheckingLocation && !hasActiveSession && !punchInLoading) {
+      checkLocationAutomatically();
+    }
   };
 
   return (
@@ -481,6 +634,22 @@ const DailyPunch = ({ navigation }) => {
       headerBackgroundColor={C.background}
       hideBottomNav={false}
     >
+      {(isProcessing || punchInLoading) && (
+        <View style={[styles.overlay, { backgroundColor: C.overlayBg }]}>
+          <View
+            style={[
+              styles.overlayCard,
+              { backgroundColor: C.surfaceSolid, borderColor: C.border },
+            ]}
+          >
+            <ActivityIndicator size="large" color={C.primary} />
+            <Text style={[styles.overlayText, { color: C.textPrimary }]}>
+              {t.attendance.processing}
+            </Text>
+          </View>
+        </View>
+      )}
+
       <StatusBar barStyle={C.statusBar} backgroundColor={C.background} />
 
       <Animated.View
@@ -498,12 +667,16 @@ const DailyPunch = ({ navigation }) => {
           <View
             style={[
               styles.salesBadge,
-              { backgroundColor: C.warning + '15', borderColor: C.warning + '40' },
+              {
+                backgroundColor: C.warning + '15',
+                borderColor: C.warning + '40',
+              },
             ]}
           >
             <Briefcase size={wp('3.5%')} color={C.warning} />
             <Text style={[styles.salesBadgeText, { color: C.warning }]}>
-              {t?.remoteLocation?.salesTeamBadge || 'Sales Team — Remote Punch-In Enabled'}
+              {t?.remoteLocation?.salesTeamBadge ||
+                'Sales Team — Remote Punch-In Enabled'}
             </Text>
           </View>
         )}
@@ -512,10 +685,7 @@ const DailyPunch = ({ navigation }) => {
         <View
           style={[
             styles.statusCard,
-            {
-              backgroundColor: C.surface,
-              borderColor: C.border,
-            },
+            { backgroundColor: C.surface, borderColor: C.border },
           ]}
         >
           <Text style={[styles.statusCardLabel, { color: C.primary }]}>
@@ -576,6 +746,8 @@ const DailyPunch = ({ navigation }) => {
             >
               {getGeofenceMessage()}
               {!hasActiveSession &&
+                !isCheckingLocation &&
+                !punchInLoading &&
                 distance !== null &&
                 !isInsideGeofence &&
                 ` - ${Math.round(distance)} ${t.geofence.meters || 'm'}`}
@@ -609,8 +781,9 @@ const DailyPunch = ({ navigation }) => {
               style={[
                 styles.punchCircle,
                 { backgroundColor: accentColor, shadowColor: accentColor },
-                !isPunchDisabled &&
-                  uiState !== 'error' && { transform: [{ scale: pulseAnim }] },
+                !isPunchDisabled && {
+                  transform: [{ scale: pulseAnim }],
+                },
                 isPunchDisabled && { opacity: 0.78 },
               ]}
             >
@@ -629,14 +802,6 @@ const DailyPunch = ({ navigation }) => {
             style={[
               styles.syncPill,
               { backgroundColor: C.surface, borderColor: C.border },
-              (isInsideGeofence === false || hasActiveSession) && {
-                borderColor:
-                  (isSalesTeam && isInsideGeofence === false
-                    ? C.warning
-                    : hasActiveSession
-                    ? C.warning
-                    : C.error) + '70',
-              },
             ]}
           >
             <Animated.View
@@ -644,23 +809,38 @@ const DailyPunch = ({ navigation }) => {
                 styles.syncDot,
                 { backgroundColor: syncDotColor },
                 isInsideGeofence === null &&
-                  !hasActiveSession && { opacity: dotOpacityAnim },
+                  !hasActiveSession &&
+                  !isCheckingLocation &&
+                  !punchInLoading && { opacity: dotOpacityAnim },
               ]}
             />
             <Text style={[styles.syncText, { color: syncTextColor }]}>
               {getSyncLabel()}
             </Text>
           </View>
+
+          {/* Manual refresh button */}
+          {!hasActiveSession && !isCheckingLocation && !punchInLoading && (
+            <TouchableOpacity
+              style={[
+                styles.refreshLocationBtn,
+                { backgroundColor: C.surface, borderColor: C.border },
+              ]}
+              onPress={handleManualLocationRefresh}
+            >
+              <Loader size={wp('3%')} color={C.primary} />
+              <Text style={[styles.refreshLocationText, { color: C.primary }]}>
+                {t.attendance.refreshLocation || 'Refresh Location'}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Verification Steps */}
         <View
           style={[
             styles.stepsCard,
-            {
-              backgroundColor: C.surface,
-              borderColor: C.border,
-            },
+            { backgroundColor: C.surface, borderColor: C.border },
           ]}
         >
           <Text style={[styles.stepsTitle, { color: C.textSecondary }]}>
@@ -696,9 +876,11 @@ const DailyPunch = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Distance Info (non-sales outside) */}
+        {/* Distance Info for non-sales */}
         {!isSalesTeam &&
           !hasActiveSession &&
+          !isCheckingLocation &&
+          !punchInLoading &&
           isInsideGeofence === false &&
           distance !== null && (
             <View
@@ -717,9 +899,11 @@ const DailyPunch = ({ navigation }) => {
             </View>
           )}
 
-        {/* Distance Info (sales outside — informational only) */}
+        {/* Distance Info for sales team */}
         {isSalesTeam &&
           !hasActiveSession &&
+          !isCheckingLocation &&
+          !punchInLoading &&
           isInsideGeofence === false &&
           distance !== null && (
             <View
@@ -751,12 +935,12 @@ const DailyPunch = ({ navigation }) => {
         isSalesTeam={isSalesTeam}
       />
 
-      {/* Remote Location Confirmation Modal (sales team only) */}
+      {/* Remote Location Confirmation Modal */}
       <RemoteLocationModal
         visible={remoteModalVisible}
         onClose={() => setRemoteModalVisible(false)}
         onConfirm={handleRemoteConfirm}
-        loading={pendingRemotePunch || punchInLoading}
+        loading={isProcessing || punchInLoading}
         locationData={{
           latitude: userCoords?.latitude ?? null,
           longitude: userCoords?.longitude ?? null,
@@ -775,8 +959,21 @@ const styles = StyleSheet.create({
     paddingTop: hp('2.5%'),
     paddingBottom: hp('3%'),
   },
-
-  // Sales badge
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+    elevation: 9999,
+  },
+  overlayCard: {
+    borderRadius: wp('4%'),
+    padding: wp('8%'),
+    alignItems: 'center',
+    gap: hp('1.5%'),
+    borderWidth: 1,
+  },
+  overlayText: { fontSize: wp('3.5%'), fontFamily: Fonts.medium },
   salesBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -788,12 +985,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     marginBottom: hp('1.5%'),
   },
-  salesBadgeText: {
-    fontSize: wp('2.8%'),
-    fontFamily: Fonts.medium,
-  },
-
-  // Status Card
+  salesBadgeText: { fontSize: wp('2.8%'), fontFamily: Fonts.medium },
   statusCard: {
     borderRadius: wp('5%'),
     padding: wp('5%'),
@@ -867,8 +1059,6 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.medium,
     flex: 1,
   },
-
-  // Punch section
   punchSection: {
     flex: 1,
     alignItems: 'center',
@@ -917,7 +1107,7 @@ const styles = StyleSheet.create({
     paddingVertical: hp('0.9%'),
     borderRadius: 30,
     borderWidth: 1,
-    marginTop: hp('4%'),
+    marginTop: hp('2%'),
     gap: wp('2%'),
   },
   syncDot: {
@@ -930,8 +1120,20 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.medium,
     letterSpacing: 0.5,
   },
-
-  // Steps card
+  refreshLocationBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp('2%'),
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1%'),
+    borderRadius: wp('3%'),
+    borderWidth: 1,
+    marginTop: hp('1.5%'),
+  },
+  refreshLocationText: {
+    fontSize: wp('2.6%'),
+    fontFamily: Fonts.medium,
+  },
   stepsCard: {
     borderRadius: wp('5%'),
     padding: wp('5%'),
@@ -968,8 +1170,6 @@ const styles = StyleSheet.create({
     marginHorizontal: wp('2%'),
     marginBottom: hp('1.5%'),
   },
-
-  // Distance Info
   distanceInfo: {
     marginTop: hp('2%'),
     padding: wp('4%'),

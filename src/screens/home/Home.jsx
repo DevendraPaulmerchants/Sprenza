@@ -285,24 +285,24 @@ const HomeScreen = ({ navigation }) => {
     ]);
   };
 
-  const handleVisitSubmit = async visitData => {
-    try {
-      setIsProcessing(true);
-      const result = await dispatch(logVisit(visitData));
-      if (result?.success) {
-        setVisitModalVisible(false);
-        dispatch(
-          setAlert(result?.message || 'Visit logged successfully', 'success'),
-        );
-      } else {
-        dispatch(setAlert(result?.message || 'Failed to log visit', 'error'));
-      }
-    } catch {
-      dispatch(setAlert(t.alerts.serverError, 'error'));
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+  // const handleVisitSubmit = async visitData => {
+  //   try {
+  //     setIsProcessing(true);
+  //     const result = await dispatch(logVisit(visitData));
+  //     if (result?.success) {
+  //       setVisitModalVisible(false);
+  //       dispatch(
+  //         setAlert(result?.message || 'Visit logged successfully', 'success'),
+  //       );
+  //     } else {
+  //       dispatch(setAlert(result?.message || 'Failed to log visit', 'error'));
+  //     }
+  //   } catch {
+  //     dispatch(setAlert(t.alerts.serverError, 'error'));
+  //   } finally {
+  //     setIsProcessing(false);
+  //   }
+  // };
 
   const handlePunchOut = async () => {
     if (isProcessing || punchOutLoading) return;

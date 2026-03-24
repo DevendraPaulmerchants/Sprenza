@@ -1,7 +1,17 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  StyleSheet,
+  Linking,
+  Text,
+  TouchableOpacity,
+  AppState,
+  Modal,
+} from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, StyleSheet } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
+import VersionCheck from 'react-native-version-check';
+import DeviceInfo from 'react-native-device-info';
 
 import LoginScreen from '../screens/auth/Login';
 import HomeScreen from '../screens/home/Home';
@@ -37,11 +47,47 @@ const AppStack = () => (
   </Stack.Navigator>
 );
 
-// ── Root Navigator ────────────────────────────────
 const AppNavigator = () => {
   const dispatch = useDispatch();
   const { isAuthenticated, loading } = useSelector(state => state.auth);
   const { alert } = useSelector(state => state.ui);
+
+  const [forceUpdate, setForceUpdate] = useState(false);
+  const [storeUrl, setStoreUrl] = useState('');
+  const [storeVersion, setStoreVersion] = useState('');
+
+  // 🔥 Version Check
+  const checkAppVersion = async () => {
+    try {
+      const res = await VersionCheck.needUpdate();
+
+      console.log('VersionCheck:', res);
+
+      if (res?.isNeeded) {
+        setForceUpdate(true);
+        setStoreUrl(res.storeUrl);
+
+        // optional: get latest version
+        const latest = await VersionCheck.getLatestVersion();
+        setStoreVersion(latest);
+      } else {
+        setForceUpdate(false);
+      }
+    } catch (e) {
+      console.log('❌ Version check error:', e);
+    }
+  };
+
+  // 🔁 Recheck when app comes back from background
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') {
+        checkAppVersion();
+      }
+    });
+
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     debugStorage();
@@ -50,24 +96,48 @@ const AppNavigator = () => {
   useEffect(() => {
     console.log('🚀 App initializing...');
     dispatch(checkAuthState());
-  }, [dispatch]);
+    checkAppVersion();
+  }, []);
 
   if (loading) {
     return <AppLoader />;
   }
 
-  // AppNavigator
-  console.log('🚦 NAV STATE:', { isAuthenticated, loading });
-
   return (
     <View style={styles.container}>
-      {/* 
-        Rendering either AuthStack or AppStack based on isAuthenticated.
-        When this value flips (login/logout), React unmounts the old stack
-        and mounts the new one — no manual navigation.reset() needed.
-      */}
-      {isAuthenticated ? <AppStack key="app" /> : <AuthStack key="auth" />}
+      {/* 🔥 Normal App */}
+      {!forceUpdate && (isAuthenticated ? <AppStack /> : <AuthStack />)}
 
+      {/* 🔥 FORCE UPDATE MODAL */}
+      <Modal visible={forceUpdate} transparent animationType="fade">
+        <View style={styles.modalContainer}>
+          <View style={styles.modalBox}>
+            <Text style={styles.title}>Update Required 🚨</Text>
+
+            <Text style={styles.desc}>
+              Please update the app to continue using it.
+            </Text>
+
+            <Text style={styles.version}>
+              Your Version: {DeviceInfo.getVersion()}
+            </Text>
+
+            {storeVersion ? (
+              <Text style={styles.version}>
+                Latest Version: {storeVersion}
+              </Text>
+            ) : null}
+
+            <TouchableOpacity
+              style={styles.button}
+              onPress={() => Linking.openURL(storeUrl)}>
+              <Text style={styles.buttonText}>Update Now</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Alerts */}
       <SlideableAlert
         visible={alert.visible}
         message={alert.message}
@@ -82,6 +152,45 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0A1128',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalBox: {
+    width: '85%',
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  desc: {
+    textAlign: 'center',
+    marginBottom: 15,
+    color: '#555',
+  },
+  version: {
+    fontSize: 14,
+    marginBottom: 5,
+    color: '#333',
+  },
+  button: {
+    marginTop: 15,
+    backgroundColor: '#0A1128',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
 });
 

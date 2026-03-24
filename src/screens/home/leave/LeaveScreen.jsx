@@ -11,10 +11,11 @@ import {
   Animated,
   Alert,
   TextInput,
+  LayoutAnimation,
 } from 'react-native';
 import {} from 'react-native';
 import { useDispatch } from 'react-redux';
-import { applyLeave } from '../../../store/actions/leaveActions';
+import { applyLeave, fetchLeaves } from '../../../store/actions/leaveActions';
 import {
   widthPercentageToDP as wp,
   heightPercentageToDP as hp,
@@ -41,6 +42,7 @@ import {
 import { Colors, Fonts } from '../../../utils/GlobalText';
 import { useTheme } from '../../../context/ThemeContext';
 import { useLanguage } from '../../../context/LanguageContext';
+import { setAlert } from '../../../store/actions/authActions';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -584,16 +586,18 @@ const LeaveScreen = ({ navigation }) => {
 
   // ── Leave Balance ─────────────────────────────────────────────────────────
   const LEAVE_BALANCE = {
-    casual: { total: 12, used: 4 },
-    sick: { total: 12, used: 2 },
-    earned: { total: 15, used: 7 },
+    total: { total: 12, used: 4 },
+    // sick: { total: 12, used: 2 },
+    // earned: { total: 15, used: 7 },
     short: { totalPerMonth: 2, usedThisMonth: 1 },
   };
-  const casualRemaining =
-    LEAVE_BALANCE.casual.total - LEAVE_BALANCE.casual.used;
-  const sickRemaining = LEAVE_BALANCE.sick.total - LEAVE_BALANCE.sick.used;
-  const earnedRemaining =
-    LEAVE_BALANCE.earned.total - LEAVE_BALANCE.earned.used;
+  const totalRemaining =
+    LEAVE_BALANCE.total.total - LEAVE_BALANCE.total.used;
+  // const casualRemaining =
+  //   LEAVE_BALANCE.casual.total - LEAVE_BALANCE.casual.used;
+  // const sickRemaining = LEAVE_BALANCE.sick.total - LEAVE_BALANCE.sick.used;
+  // const earnedRemaining =
+  //   LEAVE_BALANCE.earned.total - LEAVE_BALANCE.earned.used;
   const shortRemaining =
     LEAVE_BALANCE.short.totalPerMonth - LEAVE_BALANCE.short.usedThisMonth;
 
@@ -639,6 +643,76 @@ const LeaveScreen = ({ navigation }) => {
   }, [leaveType, startDate]);
 
   useEffect(() => {
+    fetchLeave();
+  }, []);
+
+  const fetchLeave = async () => {
+    try {
+      const result = await dispatch(fetchLeaves());
+      console.log('Fetch leaves result: ', result);
+
+      if (result?.success && result?.data) {
+        setMyLeaves(result.data);
+        console.log('✅ Leaves set successfully:', result.data.length);
+      } else {
+        console.log('❌ Failed to fetch leaves:', result?.error);
+        setMyLeaves([]);
+      }
+    } catch (error) {
+      console.log('❌ Error in fetchLeave:', error);
+      setMyLeaves([]);
+    }
+  };
+  const toggleLeaves = () => {
+    const toValue = leavesExpanded ? 0 : 1;
+    Animated.timing(leavesAnim, {
+      toValue,
+      duration: 280,
+      useNativeDriver: false,
+    }).start();
+    setLeavesExpanded(v => !v);
+  };
+
+  const formatLeaveDate = dateStr => {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
+  const getLeaveTypeDisplay = type => {
+    switch (type) {
+      case 'FULL_DAY':
+        return { text: 'Full Day', color: C.primary };
+      case 'FIRST_HALF':
+        return { text: 'First Half', color: C.warning };
+      case 'SECOND_HALF':
+        return { text: 'Second Half', color: C.warning };
+      case 'FIRST_HALF_SHORT_LEAVE':
+        return { text: 'Short (1st Half)', color: C.info };
+      case 'SECOND_HALF_SHORT_LEAVE':
+        return { text: 'Short (2nd Half)', color: C.info };
+      default:
+        return { text: type || 'Full Day', color: C.textSecondary };
+    }
+  };
+
+  const getStatusColor = status => {
+    switch (status?.toUpperCase()) {
+      case 'PENDING':
+        return C.warning;
+      case 'APPROVED':
+        return C.success;
+      case 'REJECTED':
+        return C.error;
+      default:
+        return C.textSecondary;
+    }
+  };
+
+  useEffect(() => {
     if (leaveType === 'short' && isShortLeaveHalf1Blocked) {
       setShortHalfType('half2');
     }
@@ -651,6 +725,10 @@ const LeaveScreen = ({ navigation }) => {
   const firstDay = getFirstDayOfMonth(year, currentMonth);
   const secondSat = getNthSaturday(year, currentMonth, 2);
   const fourthSat = getNthSaturday(year, currentMonth, 4);
+
+  const [myLeaves, setMyLeaves] = useState([]);
+  const [leavesExpanded, setLeavesExpanded] = useState(false);
+  const leavesAnim = useRef(new Animated.Value(0)).current;
 
   const monthHolidays = HOLIDAYS_2026.filter(h => {
     const d = new Date(h.date);
@@ -763,14 +841,45 @@ const LeaveScreen = ({ navigation }) => {
       setStartDate(dateStr);
       setEndDate(null);
       setSelectionMode('end');
+      // Show notification to select end date
+      // Alert.alert(
+      //   'Select End Date',
+      //   'Please select the end date for your leave.\n\nTap the same date for a single day leave.',
+      //   [{ text: 'OK' }],
+      // );
+      // Scroll to end date field
+      setTimeout(() => {
+        scrollToSection(endDateRef);
+      }, 300);
     } else {
-      if (dateStr < startDate) {
+      // For half day or short leave, end date should be same as start date
+      if (leaveType === 'half' || leaveType === 'short') {
         setEndDate(startDate);
-        setStartDate(dateStr);
+        setSelectionMode('start');
+        // Alert.alert(
+        //   'Date Selected',
+        //   `${
+        //     leaveType === 'half' ? 'Half Day' : 'Short Leave'
+        //   } will be applied for a single day.`,
+        //   [{ text: 'OK' }],
+        // );
+        // Scroll to leave type section
+        setTimeout(() => {
+          scrollToSection(leaveTypeRef);
+        }, 300);
       } else {
-        setEndDate(dateStr);
+        if (dateStr < startDate) {
+          setEndDate(startDate);
+          setStartDate(dateStr);
+        } else {
+          setEndDate(dateStr);
+        }
+        setSelectionMode('start');
+        // Scroll to leave type section
+        setTimeout(() => {
+          scrollToSection(leaveTypeRef);
+        }, 300);
       }
-      setSelectionMode('start');
     }
   };
 
@@ -795,10 +904,14 @@ const LeaveScreen = ({ navigation }) => {
   };
 
   const clearSelection = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setStartDate(null);
     setEndDate(null);
     setSelectionMode('start');
     setLeaveCalc(null);
+    setReason('');
+    setReasonError('');
+    setLeaveType('full');
   };
 
   const getDayInfo = day => {
@@ -860,19 +973,32 @@ const LeaveScreen = ({ navigation }) => {
     if (startDate !== todayDateStr) return true;
 
     if (isAllLeaveBlocked) {
-      Alert.alert(
-        'Leave Not Allowed',
-        t?.leave?.blockedAfter630 ||
-          'Leave cannot be applied for today after 6:30 PM',
+      // Alert.alert(
+      //   'Leave Not Allowed',
+      //   t?.leave?.blockedAfter630 ||
+      //     'Leave cannot be applied for today after 6:30 PM',
+      // );
+      dispatch(
+        setAlert(
+          t?.leave?.blockedAfter630 ||
+            'Leave cannot be applied for today after 6:30 PM',
+          'warning',
+        ),
       );
       return false;
     }
 
     if (leaveType === 'short' && shortHalfType === 'half1') {
       if (currentMinutes > 11 * 60 + 30) {
-        Alert.alert(
-          'Short Leave Not Allowed',
-          'First Half short leave can only be applied before 11:30 AM.',
+        // Alert.alert(
+        //   'Short Leave Not Allowed',
+        //   'First Half short leave can only be applied before 11:30 AM.',
+        // );
+        dispatch(
+          setAlert(
+            'First Half short leave can only be applied before 11:30 AM',
+            'warning',
+          ),
         );
         return false;
       }
@@ -880,9 +1006,15 @@ const LeaveScreen = ({ navigation }) => {
 
     if (leaveType === 'half' && halfDayType === 'half1') {
       if (currentMinutes > 12 * 60) {
-        Alert.alert(
-          'Half Day Leave Not Allowed',
-          'First Half half-day leave must be applied before 12:00 PM.',
+        // Alert.alert(
+        //   'Half Day Leave Not Allowed',
+        //   'First Half half-day leave must be applied before 12:00 PM.',
+        // );
+        dispatch(
+          setAlert(
+            'First Half half-day leave must be applied before 12:00 PM.',
+            'warning',
+          ),
         );
         return false;
       }
@@ -891,27 +1023,71 @@ const LeaveScreen = ({ navigation }) => {
     return true;
   };
 
+  // Refs for scrolling
+  const scrollViewRef = useRef(null);
+  const endDateRef = useRef(null);
+  const leaveTypeRef = useRef(null);
+  const reasonRef = useRef(null);
+
+  const scrollToSection = ref => {
+    if (ref?.current) {
+      setTimeout(() => {
+        ref.current?.measureLayout(
+          scrollViewRef.current,
+          (x, y) => {
+            scrollViewRef.current?.scrollTo({ y: y - 100, animated: true });
+          },
+          () => {},
+        );
+      }, 100);
+    }
+  };
+
+  const getLeaveTypePayload = () => {
+    if (leaveType === 'full') return 'FULL_DAY';
+    if (leaveType === 'half') {
+      return halfDayType === 'half1' ? 'FIRST_HALF' : 'SECOND_HALF';
+    }
+    if (leaveType === 'short') {
+      return shortHalfType === 'half1'
+        ? 'FIRST_HALF_SHORT_LEAVE'
+        : 'SECOND_HALF_SHORT_LEAVE';
+    }
+    return 'FULL_DAY';
+  };
+
+  const handleLeaveTypeSelect = type => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setLeaveType(type);
+
+    // For half day or short leave, set end date to start date if not set
+    if ((type === 'half' || type === 'short') && startDate && !endDate) {
+      setEndDate(startDate);
+    }
+
+    // Scroll to reason section after selection
+    setTimeout(() => {
+      scrollToSection(reasonRef);
+    }, 300);
+  };
+
   const handleApplyLeave = async () => {
     if (!startDate || !leaveCalc) return;
     if (!validateLeaveTime()) return;
 
     if (!reason.trim()) {
       setReasonError(t?.leave?.reasonRequired || 'Reason is required');
+      setTimeout(() => {
+        scrollToSection(reasonRef);
+      }, 100);
       return;
     }
 
     const payload = {
-      leaveType:
-        leaveType === 'full'
-          ? 'FULL_DAY'
-          : leaveType === 'half'
-          ? 'HALF_DAY'
-          : 'SHORT_LEAVE',
+      leaveType: getLeaveTypePayload(),
       startDate: startDate,
       endDate: endDate || startDate,
       reason: reason.trim(),
-      halfDayType: leaveType === 'half' ? halfDayType : undefined,
-      shortHalfType: leaveType === 'short' ? shortHalfType : undefined,
       totalDays: leaveCalc.total,
     };
 
@@ -931,14 +1107,18 @@ const LeaveScreen = ({ navigation }) => {
           friction: 7,
         }).start();
         setReason('');
+        // Refresh leaves after applying
+        await fetchLeave();
       } else {
-        Alert.alert(
-          'Leave Application Failed',
-          result?.error || 'Something went wrong',
-        );
+        // Alert.alert(
+        //   'Leave Application Failed',
+        //   result?.error || 'Something went wrong',
+        // );
+        dispatch(setAlert(result?.error || 'Something went wrong', 'warning'));
       }
     } catch (err) {
-      Alert.alert('Error', 'Unable to submit leave');
+      // Alert.alert('Error', 'Unable to submit leave');
+      dispatch(setAlert('Unable to submit leave', 'warning'));
     } finally {
       setIsSubmitting(false);
     }
@@ -1228,7 +1408,7 @@ const LeaveScreen = ({ navigation }) => {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.balanceStrip}
             >
-              {/* Casual Leave */}
+              {/* Total Leave */}
               <View
                 style={[
                   styles.balanceCard,
@@ -1247,7 +1427,7 @@ const LeaveScreen = ({ navigation }) => {
                   <Text
                     style={[styles.balanceCardRemaining, { color: C.primary }]}
                   >
-                    {casualRemaining}
+                    {totalRemaining}
                   </Text>
                   <Text
                     style={[
@@ -1255,13 +1435,13 @@ const LeaveScreen = ({ navigation }) => {
                       { color: C.primary + '80' },
                     ]}
                   >
-                    / {LEAVE_BALANCE.casual.total}
+                    / {LEAVE_BALANCE.total.total}
                   </Text>
                 </View>
                 <Text
                   style={[styles.balanceCardLabel, { color: C.textSecondary }]}
                 >
-                  {t?.leave?.casual || 'Casual'}
+                  {t?.leave?.total || 'Total'}
                 </Text>
                 <View
                   style={[styles.balanceBar, { backgroundColor: C.border }]}
@@ -1271,12 +1451,12 @@ const LeaveScreen = ({ navigation }) => {
                       styles.balanceBarFill,
                       {
                         width: `${
-                          (casualRemaining / LEAVE_BALANCE.casual.total) * 100
+                          (totalRemaining / LEAVE_BALANCE.total.total) * 100
                         }%`,
                         backgroundColor:
-                          casualRemaining <= 2
+                          totalRemaining <= 2
                             ? C.error
-                            : casualRemaining <= 5
+                            : totalRemaining <= 5
                             ? C.warning
                             : C.primary,
                       },
@@ -1286,12 +1466,12 @@ const LeaveScreen = ({ navigation }) => {
                 <Text
                   style={[styles.balanceUsedText, { color: C.textSecondary }]}
                 >
-                  {LEAVE_BALANCE.casual.used} {t?.leave?.usedLabel || 'used'}
+                  {LEAVE_BALANCE.total.used} {t?.leave?.usedLabel || 'used'}
                 </Text>
               </View>
 
               {/* Sick Leave */}
-              <View
+              {/* <View
                 style={[
                   styles.balanceCard,
                   { backgroundColor: C.background, borderColor: C.info + '50' },
@@ -1344,10 +1524,10 @@ const LeaveScreen = ({ navigation }) => {
                 >
                   {LEAVE_BALANCE.sick.used} {t?.leave?.usedLabel || 'used'}
                 </Text>
-              </View>
+              </View> */}
 
               {/* Earned Leave */}
-              <View
+              {/* <View
                 style={[
                   styles.balanceCard,
                   {
@@ -1406,13 +1586,13 @@ const LeaveScreen = ({ navigation }) => {
                 >
                   {LEAVE_BALANCE.earned.used} {t?.leave?.usedLabel || 'used'}
                 </Text>
-              </View>
+              </View> */}
 
               {/* Short Leave — monthly */}
               <View
                 style={[
                   styles.balanceCard,
-                  styles.balanceCardShort,
+                  // styles.balanceCardShort,
                   {
                     backgroundColor: C.background,
                     borderColor: C.warning + '40',
@@ -1502,7 +1682,7 @@ const LeaveScreen = ({ navigation }) => {
           </View>
 
           {/* Instruction */}
-          <View
+          {/* <View
             style={[
               styles.instructionBanner,
               {
@@ -1538,7 +1718,7 @@ const LeaveScreen = ({ navigation }) => {
                 : t?.leave?.tapEndDate ||
                   '📅 Tap another date to set End Date (or same date for single day)'}
             </Text>
-          </View>
+          </View> */}
 
           {/* Date row */}
           <View style={styles.datePickerRow}>
@@ -1777,10 +1957,17 @@ const LeaveScreen = ({ navigation }) => {
                   ]}
                   onPress={() => {
                     if (isHalfDayHalf1Blocked) {
-                      Alert.alert(
-                        'Not Allowed',
-                        'First Half leave must be applied before 12:00 PM.',
+                      // Alert.alert(
+                      //   'Not Allowed',
+                      //   'First Half leave must be applied before 12:00 PM.',
+                      // );
+                      dispatch(
+                        setAlert(
+                          'First Half leave must be applied before 12:00 PM.',
+                          'warning',
+                        ),
                       );
+
                       return;
                     }
                     setHalfDayType('half1');
@@ -1985,10 +2172,17 @@ const LeaveScreen = ({ navigation }) => {
                   ]}
                   onPress={() => {
                     if (isShortLeaveHalf1Blocked) {
-                      Alert.alert(
-                        'Not Allowed',
-                        'First Half short leave must be applied before 11:30 AM.',
+                      // Alert.alert(
+                      //   'Not Allowed',
+                      //   'First Half short leave must be applied before 11:30 AM.',
+                      // );
+                      dispatch(
+                        setAlert(
+                          'First Half short leave must be applied before 11:30 AM.',
+                          'warning',
+                        ),
                       );
+
                       return;
                     }
                     setShortHalfType('half1');
@@ -2351,6 +2545,11 @@ const LeaveScreen = ({ navigation }) => {
                   color: C.textPrimary,
                 },
               ]}
+              onFocus={() => {
+                setTimeout(() => {
+                  scrollToSection(reasonRef);
+                }, 100);
+              }}
               placeholder={
                 t?.leave?.reasonPlaceholder || 'Enter reason for leave...'
               }
@@ -2453,6 +2652,177 @@ const LeaveScreen = ({ navigation }) => {
               </View>
             )}
           </TouchableOpacity>
+        </View>
+
+        {/* ── My Leaves Section ── */}
+        <View
+          style={[
+            styles.leavesCard,
+            { backgroundColor: C.surface, borderColor: C.border },
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.leavesToggleBtn}
+            onPress={toggleLeaves}
+            activeOpacity={0.7}
+          >
+            <View style={styles.leavesToggleLeft}>
+              <View
+                style={[
+                  styles.leavesToggleIcon,
+                  { backgroundColor: C.info + '18' },
+                ]}
+              >
+                <Briefcase size={wp('3.5%')} color={C.info} />
+              </View>
+              <Text
+                style={[styles.leavesToggleTitle, { color: C.textPrimary }]}
+              >
+                My Leave Applications
+              </Text>
+              <View
+                style={[
+                  styles.leaveCountBadge,
+                  { backgroundColor: C.info + '20' },
+                ]}
+              >
+                <Text style={[styles.leaveCountText, { color: C.info }]}>
+                  {myLeaves.length}
+                </Text>
+              </View>
+            </View>
+            <View
+              style={[
+                styles.legendChevronWrap,
+                { backgroundColor: C.background, borderColor: C.border },
+              ]}
+            >
+              {leavesExpanded ? (
+                <ChevronUp size={wp('4%')} color={C.textSecondary} />
+              ) : (
+                <ChevronDown size={wp('4%')} color={C.textSecondary} />
+              )}
+            </View>
+          </TouchableOpacity>
+
+          <Animated.View
+            style={[
+              styles.leavesContent,
+              {
+                maxHeight: leavesAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 500],
+                }),
+                opacity: leavesAnim,
+                overflow: 'hidden',
+              },
+            ]}
+          >
+            <View
+              style={[styles.legendDivider, { backgroundColor: C.border }]}
+            />
+
+            {myLeaves.length === 0 ? (
+              <View style={styles.emptyLeaves}>
+                <CalendarDays size={wp('8%')} color={C.disabled} />
+                <Text
+                  style={[styles.emptyLeavesText, { color: C.textSecondary }]}
+                >
+                  No leave applications found
+                </Text>
+              </View>
+            ) : (
+              myLeaves.map((leave, index) => {
+                const leaveTypeInfo = getLeaveTypeDisplay(leave.leaveType);
+                const startDateFormatted = formatLeaveDate(leave.startDate);
+                const endDateFormatted = formatLeaveDate(leave.endDate);
+                const isMultiDay = startDateFormatted !== endDateFormatted;
+
+                return (
+                  <View
+                    key={leave._id || index}
+                    style={[
+                      styles.leaveItem,
+                      {
+                        borderBottomColor: C.border,
+                        backgroundColor:
+                          index % 2 === 0 ? C.background : 'transparent',
+                      },
+                    ]}
+                  >
+                    <View style={styles.leaveItemHeader}>
+                      <View style={styles.leaveDates}>
+                        <Calendar size={wp('3%')} color={C.primary} />
+                        <Text
+                          style={[
+                            styles.leaveDateText,
+                            { color: C.textPrimary },
+                          ]}
+                        >
+                          {startDateFormatted}
+                          {isMultiDay && ` → ${endDateFormatted}`}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.statusBadge,
+                          {
+                            backgroundColor:
+                              getStatusColor(leave.status) + '20',
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.statusText,
+                            { color: getStatusColor(leave.status) },
+                          ]}
+                        >
+                          {leave.status || 'PENDING'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.leaveItemDetails}>
+                      <View
+                        style={[
+                          styles.leaveTypeBadge,
+                          { backgroundColor: leaveTypeInfo.color + '15' },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.leaveTypeBadgeText,
+                            { color: leaveTypeInfo.color },
+                          ]}
+                        >
+                          {leaveTypeInfo.text}
+                        </Text>
+                      </View>
+                      <Text
+                        style={[styles.leaveReason, { color: C.textSecondary }]}
+                        numberOfLines={2}
+                      >
+                        {leave.reason}
+                      </Text>
+                    </View>
+
+                    {leave.totalDays && (
+                      <View style={styles.leaveDaysBadge}>
+                        <Clock size={wp('2.5%')} color={C.success} />
+                        <Text
+                          style={[styles.leaveDaysText, { color: C.success }]}
+                        >
+                          {leave.totalDays}{' '}
+                          {leave.totalDays > 1 ? 'days' : 'day'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })
+            )}
+          </Animated.View>
         </View>
 
         {/* ── Legend (Collapsible) ── */}
@@ -3299,8 +3669,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: wp('4%'),
-    paddingTop: Platform.OS === 'ios' ? hp('6%') : hp('6%'),
-    paddingBottom: hp('2%'),
+    paddingTop: Platform.OS === 'ios' ? hp('6%') : hp('5%'),
+    paddingBottom: hp('1%'),
     borderBottomWidth: 1,
   },
   backBtn: {
@@ -3336,7 +3706,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: wp('5%'),
-    marginTop: hp('2%'),
+    marginTop: hp('1%'),
     marginBottom: hp('1%'),
   },
   navBtn: {
@@ -3502,6 +3872,123 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: 'hidden',
     flex: 1,
+  },
+
+  // Add to styles object
+  leavesCard: {
+    marginHorizontal: wp('4%'),
+    marginTop: hp('2%'),
+    borderRadius: wp('4%'),
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  leavesToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: wp('4%'),
+  },
+  leavesToggleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp('2.5%'),
+  },
+  leavesToggleIcon: {
+    width: wp('8%'),
+    height: wp('8%'),
+    borderRadius: wp('2%'),
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  leavesToggleTitle: {
+    fontSize: wp('3.5%'),
+    fontFamily: Fonts.bold,
+  },
+  leaveCountBadge: {
+    paddingHorizontal: wp('2%'),
+    paddingVertical: 2,
+    borderRadius: 20,
+    marginLeft: wp('1%'),
+  },
+  leaveCountText: {
+    fontSize: wp('2.8%'),
+    fontFamily: Fonts.bold,
+  },
+  leavesContent: {
+    paddingHorizontal: wp('4%'),
+    paddingBottom: wp('4%'),
+  },
+  emptyLeaves: {
+    alignItems: 'center',
+    paddingVertical: hp('3%'),
+    gap: hp('1%'),
+  },
+  emptyLeavesText: {
+    fontSize: wp('3%'),
+    fontFamily: Fonts.regular,
+  },
+  leaveItem: {
+    padding: hp('1.5%'),
+    borderBottomWidth: 1,
+    gap: hp('0.8%'),
+    borderRadius: 12,
+  },
+  leaveItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  leaveDates: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp('2%'),
+  },
+  leaveDateText: {
+    fontSize: wp('3%'),
+    fontFamily: Fonts.medium,
+  },
+  statusBadge: {
+    paddingHorizontal: wp('2.5%'),
+    paddingVertical: 3,
+    borderRadius: 20,
+  },
+  statusText: {
+    fontSize: wp('2.5%'),
+    fontFamily: Fonts.bold,
+  },
+  leaveItemDetails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: wp('2%'),
+    flexWrap: 'wrap',
+  },
+  leaveTypeBadge: {
+    paddingHorizontal: wp('2%'),
+    paddingVertical: 3,
+    borderRadius: 20,
+  },
+  leaveTypeBadgeText: {
+    fontSize: wp('2.5%'),
+    fontFamily: Fonts.medium,
+  },
+  leaveReason: {
+    fontSize: wp('2.8%'),
+    fontFamily: Fonts.regular,
+    flex: 1,
+  },
+  leaveDaysBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    paddingHorizontal: wp('2%'),
+    paddingVertical: 2,
+    borderRadius: 20,
+    backgroundColor: '#e8f5e9',
+  },
+  leaveDaysText: {
+    fontSize: wp('2.2%'),
+    fontFamily: Fonts.medium,
   },
   leaveTypeOption: {
     flex: 1,

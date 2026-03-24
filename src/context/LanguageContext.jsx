@@ -39,7 +39,7 @@ export const translations = {
       dailyPunch: 'Daily Punch',
       idleTracking: 'Break/Visit Time',
       leaveManagement: 'Leave',
-      reports: 'Reports',
+      reports: 'History',
       welcomeMessage: 'Welcome back, {name}!',
       todaysAttendance: "Today's Attendance",
       attendanceStatus: 'Attendance Status',

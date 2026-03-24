@@ -1,6 +1,8 @@
-import { PermissionsAndroid, Platform } from 'react-native';
+// src/utils/utils.js
+import { PermissionsAndroid, Platform, Alert, Linking } from 'react-native';
 import Geolocation from 'react-native-geolocation-service';
 import { request, check, PERMISSIONS, RESULTS } from 'react-native-permissions';
+import { GOOGLE_API_KEY } from './GlobalText';
 
 export const formatDuration = (minutes) => {
   if (!minutes || minutes === 0) return '0 mins';
@@ -69,35 +71,11 @@ export const formatAttendanceDuration = (minutes) => {
   return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')} hrs`;
 };
 
-
-// const GOOGLE_API_KEY = 'my-google-api-key';
-
-// export const getAddressFromCoords = async (lat, lng) => {
-//   try {
-//     const response = await fetch(
-//       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
-//       {
-//         headers: {
-//           'User-Agent': 'PresenzaApp/1.0',
-//         },
-//       },
-//     );
-
-//     const data = await response.json();
-
-//     if (!data || !data.display_name) {
-//       return 'Address unavailable';
-//     }
-
-//     return data.display_name;
-//   } catch (error) {
-//     console.log('Geocode error:', error);
-//     return 'Address unavailable';
-//   }
-// };
-
+/**
+ * Get address from coordinates using Google Maps API
+ */
 export const getAddressFromCoords = async (lat, lng) => {
-    const GOOGLE_API_KEY = 'AIzaSyDNY5oQOOYz1dtYXZUn4WNbJPwiOE9OENE';
+  // const GOOGLE_API_KEY = 'AIzaSyDNY5oQOOYz1dtYXZUn4WNbJPwiOE9OENE';
 
   try {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_API_KEY}`;
@@ -116,101 +94,222 @@ export const getAddressFromCoords = async (lat, lng) => {
   }
 };
 
-
-
-export const getCurrentLocation = async () => {
-  try {
-    // =========================
-    // ANDROID PERMISSION
-    // =========================
-    if (Platform.OS === 'android') {
+/**
+ * Check and request location permission
+ */
+export const checkAndRequestLocationPermission = async () => {
+  if (Platform.OS === 'android') {
+    try {
+      // Check if already granted
+      const fineLocationGranted = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+      );
+      const coarseLocationGranted = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION
+      );
+      
+      if (fineLocationGranted && coarseLocationGranted) {
+        console.log('Location permissions already granted');
+        return true;
+      }
+      
+      // Request permission
       const granted = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
         {
           title: 'Location Permission',
-          message: 'App needs your location to mark attendance',
+          message: 'App needs access to your location for attendance verification',
           buttonNeutral: 'Ask Me Later',
           buttonNegative: 'Cancel',
           buttonPositive: 'OK',
-        },
-      );
-
-      if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-        throw { code: 1, message: 'Location permission not granted.' };
-      }
-    }
-
-    // =========================
-    // IOS PERMISSION
-    // =========================
-    if (Platform.OS === 'ios') {
-      const permission = PERMISSIONS.IOS.LOCATION_WHEN_IN_USE;
-
-      const status = await check(permission);
-
-      if (status === RESULTS.DENIED) {
-        const requestStatus = await request(permission);
-
-        if (requestStatus !== RESULTS.GRANTED) {
-          throw { code: 1, message: 'Location permission denied' };
         }
-      }
-
-      if (status === RESULTS.BLOCKED) {
-        throw {
-          code: 1,
-          message: 'Location permission blocked. Enable from Settings.',
-        };
-      }
-    }
-
-    // =========================
-    // GET LOCATION
-    // =========================
-    return new Promise((resolve, reject) => {
-      Geolocation.getCurrentPosition(
-        position => {
-          resolve({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          });
-        },
-        error => {
-          reject(error);
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 10000,
-          forceRequestLocation: true,
-          showLocationDialog: true,
-        },
       );
-    });
-  } catch (error) {
-    throw error;
+      
+      if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+        console.log('Location permission granted');
+        return true;
+      } else if (granted === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+        Alert.alert(
+          'Location Permission Required',
+          'Location permission is needed to verify your attendance location. Please enable it in settings.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() }
+          ]
+        );
+        return false;
+      } else {
+        Alert.alert('Location Permission Denied', 'Location access is required for attendance.');
+        return false;
+      }
+    } catch (err) {
+      console.warn('Location permission error:', err);
+      return false;
+    }
+  } else {
+    // iOS
+    try {
+      const status = await check(PERMISSIONS.IOS.LOCATION_WHEN_IN_USE);
+      if (status === RESULTS.GRANTED) {
+        return true;
+      } else if (status === RESULTS.DENIED) {
+        const requestStatus = await request(PERMISSIONS.IOS.LOCATION_WHEN_IN_USE);
+        if (requestStatus === RESULTS.GRANTED) {
+          return true;
+        } else if (requestStatus === RESULTS.BLOCKED) {
+          Alert.alert(
+            'Location Permission Required',
+            'Location permission is needed to verify your attendance location. Please enable it in settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() }
+            ]
+          );
+        }
+        return false;
+      } else if (status === RESULTS.BLOCKED) {
+        Alert.alert(
+          'Location Permission Required',
+          'Location permission is blocked. Please enable it in settings.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() }
+          ]
+        );
+        return false;
+      }
+      return false;
+    } catch (err) {
+      console.warn('Location permission error:', err);
+      return false;
+    }
   }
 };
 
+/**
+ * Get current location with permission handling
+ */
+export const getCurrentLocation = async () => {
+  // First check and request permission
+  const hasPermission = await checkAndRequestLocationPermission();
+  
+  if (!hasPermission) {
+    throw new Error('LOCATION_PERMISSION_DENIED');
+  }
+  
+  return new Promise((resolve, reject) => {
+    Geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        console.log('Location obtained:', { latitude, longitude, accuracy });
+        resolve({ latitude, longitude, accuracy });
+      },
+      (error) => {
+        console.log('Location error:', error);
+        let errorMessage = 'LOCATION_FAILED';
+        
+        switch (error.code) {
+          case 1:
+            errorMessage = 'LOCATION_PERMISSION_DENIED';
+            break;
+          case 2:
+            errorMessage = 'LOCATION_UNAVAILABLE';
+            break;
+          case 3:
+            errorMessage = 'LOCATION_TIMEOUT';
+            break;
+          default:
+            errorMessage = 'LOCATION_FAILED';
+        }
+        
+        reject(new Error(errorMessage));
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+        forceRequestLocation: true,
+        showLocationDialog: true,
+      }
+    );
+  });
+};
 
+/**
+ * Request camera permission with proper handling
+ */
 export const requestCameraPermission = async () => {
-  const permission =
-    Platform.OS === 'android'
-      ? PERMISSIONS.ANDROID.CAMERA
-      : PERMISSIONS.IOS.CAMERA;
-
-  try {
-    const status = await check(permission);
-
-    if (status === RESULTS.GRANTED) {
-      return true;
+  if (Platform.OS === 'android') {
+    try {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.CAMERA,
+        {
+          title: 'Camera Permission',
+          message: 'App needs access to your camera for attendance selfies',
+          buttonNeutral: 'Ask Me Later',
+          buttonNegative: 'Cancel',
+          buttonPositive: 'OK',
+        }
+      );
+      
+      if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+        console.log('Camera permission granted');
+        return true;
+      } else if (granted === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+        Alert.alert(
+          'Camera Permission Required',
+          'Camera permission is needed for attendance verification. Please enable it in settings.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() }
+          ]
+        );
+        return false;
+      } else {
+        Alert.alert('Camera Permission Denied', 'Camera access is required for attendance.');
+        return false;
+      }
+    } catch (err) {
+      console.warn('Camera permission error:', err);
+      return false;
     }
-
-    const result = await request(permission);
-    return result === RESULTS.GRANTED;
-  } catch (error) {
-    console.log('Camera permission error:', error);
-    return false;
+  } else {
+    // iOS
+    try {
+      const status = await check(PERMISSIONS.IOS.CAMERA);
+      if (status === RESULTS.GRANTED) {
+        return true;
+      } else if (status === RESULTS.DENIED) {
+        const requestStatus = await request(PERMISSIONS.IOS.CAMERA);
+        if (requestStatus === RESULTS.GRANTED) {
+          return true;
+        } else if (requestStatus === RESULTS.BLOCKED) {
+          Alert.alert(
+            'Camera Permission Required',
+            'Camera permission is needed for attendance verification. Please enable it in settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() }
+            ]
+          );
+        }
+        return false;
+      } else if (status === RESULTS.BLOCKED) {
+        Alert.alert(
+          'Camera Permission Required',
+          'Camera permission is blocked. Please enable it in settings.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() }
+          ]
+        );
+        return false;
+      }
+      return false;
+    } catch (err) {
+      console.warn('Camera permission error:', err);
+      return false;
+    }
   }
 };
 
@@ -227,3 +326,33 @@ export const formatMinutesToHours = (minutes) => {
   return `${hours} ${hours === 1 ? 'hour' : 'hours'} ${remainingMinutes} min`;
 };
 
+/**
+ * Show permission dialog for both camera and location
+ */
+export const requestAllPermissions = async () => {
+  const cameraGranted = await requestCameraPermission();
+  const locationGranted = await checkAndRequestLocationPermission();
+  
+  return {
+    camera: cameraGranted,
+    location: locationGranted,
+    allGranted: cameraGranted && locationGranted
+  };
+};
+
+/**
+ * Check if location services are enabled (Android only)
+ */
+export const isLocationEnabled = async () => {
+  if (Platform.OS === 'android') {
+    try {
+      const locationEnabled = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+      );
+      return locationEnabled;
+    } catch (err) {
+      return false;
+    }
+  }
+  return true; // iOS handled differently
+};
